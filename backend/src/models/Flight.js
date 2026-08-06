@@ -58,6 +58,9 @@ const flightSchema = new Schema(
 
 flightSchema.index({ originAirport: 1, destinationAirport: 1, departureAt: 1 });
 flightSchema.index({ airline: 1, departureAt: 1 });
+flightSchema.index({ departureAt: 1, _id: 1 });
+flightSchema.index({ arrivalAt: 1, _id: 1 });
+flightSchema.index({ availableSeats: 1, _id: 1 });
 flightSchema.index(
   { airline: 1, flightNumber: 1, departureAt: 1 },
   { unique: true },

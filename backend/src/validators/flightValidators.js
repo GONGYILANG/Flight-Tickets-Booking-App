@@ -1,7 +1,9 @@
 import mongoose from "mongoose";
 
 const airportCodePattern = /^[A-Z]{3}$/;
+const airlineCodePattern = /^[A-Z0-9]{2,3}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const allowedDeparturePeriods = new Set(["MORNING", "AFTERNOON"]);
 const allowedSortFields = new Set([
   "departureAt",
   "arrivalAt",
@@ -56,6 +58,52 @@ function parseDepartureDate(value, fields) {
   return value;
 }
 
+function parseDeparturePeriod(value, fields) {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    fields.push({
+      field: "departurePeriod",
+      message: "departurePeriod must be MORNING or AFTERNOON",
+    });
+    return undefined;
+  }
+
+  const period = value.trim().toUpperCase();
+  if (!allowedDeparturePeriods.has(period)) {
+    fields.push({
+      field: "departurePeriod",
+      message: "departurePeriod must be MORNING or AFTERNOON",
+    });
+  }
+  return period;
+}
+
+function parseAirlineCode(value, fields) {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    fields.push({
+      field: "airlineCode",
+      message: "airlineCode must be a two- or three-character airline code",
+    });
+    return undefined;
+  }
+
+  const code = value.trim().toUpperCase();
+  if (!airlineCodePattern.test(code)) {
+    fields.push({
+      field: "airlineCode",
+      message: "airlineCode must be a two- or three-character airline code",
+    });
+  }
+  return code;
+}
+
 function parseInteger(value, field, defaultValue, minimum, maximum, fields) {
   if (value === undefined) {
     return defaultValue;
@@ -92,6 +140,11 @@ export function validateFlightSearch(request, _response, next) {
       request.query.departureDate,
       fields,
     );
+    const departurePeriod = parseDeparturePeriod(
+      request.query.departurePeriod,
+      fields,
+    );
+    const airlineCode = parseAirlineCode(request.query.airlineCode, fields);
     const passengers = parseInteger(
       request.query.passengers,
       "passengers",
@@ -137,6 +190,8 @@ export function validateFlightSearch(request, _response, next) {
       origin,
       destination,
       departureDate,
+      departurePeriod,
+      airlineCode,
       passengers,
       page,
       limit,

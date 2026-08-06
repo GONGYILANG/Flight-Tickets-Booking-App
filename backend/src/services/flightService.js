@@ -1,4 +1,5 @@
-import "../models/Airline.js";
+import { DateTime, IANAZone } from "luxon";
+import Airline from "../models/Airline.js";
 import Airport from "../models/Airport.js";
 import Flight from "../models/Flight.js";
 
@@ -18,6 +19,16 @@ function serviceError(code, message, statusCode) {
   const error = new Error(message);
   error.code = code;
   error.statusCode = statusCode;
+  return error;
+}
+
+function invalidRequest(fields) {
+  const error = serviceError(
+    "INVALID_REQUEST",
+    "One or more request parameters are invalid",
+    400,
+  );
+  error.details = { fields };
   return error;
 }
 
@@ -68,32 +79,77 @@ export function toFlightResponse(flight) {
   };
 }
 
-function emptySearchResult(criteria) {
+function toSearchMetadata(criteria, departureTimezone) {
   return {
-    flights: [],
-    pagination: {
-      page: criteria.page,
-      limit: criteria.limit,
-      totalItems: 0,
-      totalPages: 0,
-    },
-    search: {
-      origin: criteria.origin,
-      destination: criteria.destination,
-      departureDate: criteria.departureDate,
-      passengers: criteria.passengers,
-      sortBy: criteria.sortBy,
-      sortOrder: criteria.sortOrder,
-    },
+    origin: criteria.origin,
+    destination: criteria.destination,
+    departureDate: criteria.departureDate,
+    departurePeriod: criteria.departurePeriod,
+    departureTimezone,
+    airlineCode: criteria.airlineCode,
+    passengers: criteria.passengers,
+    sortBy: criteria.sortBy,
+    sortOrder: criteria.sortOrder,
+  };
+}
+
+export function getDepartureWindow(criteria, timezone) {
+  if (typeof timezone !== "string" || !IANAZone.isValidZone(timezone)) {
+    throw serviceError(
+      "INVALID_AIRPORT_TIMEZONE",
+      `Origin airport has an invalid timezone: ${timezone}`,
+      500,
+    );
+  }
+
+  const localDayStart = DateTime.fromISO(criteria.departureDate, {
+    zone: timezone,
+  }).startOf("day");
+
+  if (!localDayStart.isValid) {
+    throw serviceError(
+      "INVALID_AIRPORT_TIMEZONE",
+      `Origin airport has an invalid timezone: ${timezone}`,
+      500,
+    );
+  }
+
+  const localNoon = localDayStart.set({ hour: 12 });
+  const localNextDayStart = localDayStart.plus({ days: 1 });
+
+  if (criteria.departurePeriod === "MORNING") {
+    return {
+      start: localDayStart.toUTC().toJSDate(),
+      end: localNoon.toUTC().toJSDate(),
+    };
+  }
+
+  if (criteria.departurePeriod === "AFTERNOON") {
+    return {
+      start: localNoon.toUTC().toJSDate(),
+      end: localNextDayStart.toUTC().toJSDate(),
+    };
+  }
+
+  return {
+    start: localDayStart.toUTC().toJSDate(),
+    end: localNextDayStart.toUTC().toJSDate(),
   };
 }
 
 export async function searchFlights(criteria) {
-  const airports = await Airport.find({
-    iataCode: { $in: [criteria.origin, criteria.destination] },
-  })
-    .select("iataCode")
-    .lean();
+  const [airports, airline] = await Promise.all([
+    Airport.find({
+      iataCode: { $in: [criteria.origin, criteria.destination] },
+    })
+      .select("iataCode timezone")
+      .lean(),
+    criteria.airlineCode
+      ? Airline.findOne({ code: criteria.airlineCode, active: true })
+          .select("_id code")
+          .lean()
+      : Promise.resolve(null),
+  ]);
 
   const airportByCode = new Map(
     airports.map((airport) => [airport.iataCode, airport]),
@@ -101,61 +157,71 @@ export async function searchFlights(criteria) {
   const originAirport = airportByCode.get(criteria.origin);
   const destinationAirport = airportByCode.get(criteria.destination);
 
-  if (!originAirport || !destinationAirport) {
-    return emptySearchResult(criteria);
+  const invalidFields = [];
+  if (!originAirport) {
+    invalidFields.push({
+      field: "origin",
+      message: "origin must identify an existing airport",
+    });
+  }
+  if (!destinationAirport) {
+    invalidFields.push({
+      field: "destination",
+      message: "destination must identify an existing airport",
+    });
+  }
+  if (criteria.airlineCode && !airline) {
+    invalidFields.push({
+      field: "airlineCode",
+      message: "airlineCode must identify an active airline",
+    });
+  }
+  if (invalidFields.length > 0) {
+    throw invalidRequest(invalidFields);
   }
 
-  const dayStart = new Date(`${criteria.departureDate}T00:00:00.000Z`);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  const departureWindow = getDepartureWindow(
+    criteria,
+    originAirport.timezone,
+  );
 
   const filter = {
     originAirport: originAirport._id,
     destinationAirport: destinationAirport._id,
-    departureAt: { $gte: dayStart, $lt: dayEnd },
+    departureAt: {
+      $gte: departureWindow.start,
+      $lt: departureWindow.end,
+    },
     availableSeats: { $gte: criteria.passengers },
     status: { $in: ["SCHEDULED", "DELAYED"] },
   };
+  if (airline) {
+    filter.airline = airline._id;
+  }
+
   const direction = criteria.sortOrder === "asc" ? 1 : -1;
   const skip = (criteria.page - 1) * criteria.limit;
+  const sort = { [criteria.sortBy]: direction, _id: direction };
 
-  const matchingFlights = await Flight.find(filter)
-    .populate(flightPopulate)
-    .lean();
-
-  matchingFlights.sort((first, second) => {
-    const firstValue = ["departureAt", "arrivalAt"].includes(criteria.sortBy)
-      ? new Date(first[criteria.sortBy]).getTime()
-      : first[criteria.sortBy];
-    const secondValue = ["departureAt", "arrivalAt"].includes(criteria.sortBy)
-      ? new Date(second[criteria.sortBy]).getTime()
-      : second[criteria.sortBy];
-
-    if (firstValue === secondValue) {
-      return first._id.toString().localeCompare(second._id.toString());
-    }
-    return (firstValue < secondValue ? -1 : 1) * direction;
-  });
-
-  const totalItems = matchingFlights.length;
-  const flights = matchingFlights.slice(skip, skip + criteria.limit);
-
+  const [matchingFlights, totalItems] = await Promise.all([
+    Flight.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(criteria.limit)
+      .populate(flightPopulate)
+      .lean(),
+    Flight.countDocuments(filter),
+  ]);
+ 
   return {
-    flights: flights.map(toFlightResponse),
+    flights: matchingFlights.map(toFlightResponse),
     pagination: {
       page: criteria.page,
       limit: criteria.limit,
       totalItems,
       totalPages: Math.ceil(totalItems / criteria.limit),
     },
-    search: {
-      origin: criteria.origin,
-      destination: criteria.destination,
-      departureDate: criteria.departureDate,
-      passengers: criteria.passengers,
-      sortBy: criteria.sortBy,
-      sortOrder: criteria.sortOrder,
-    },
+    search: toSearchMetadata(criteria, originAirport.timezone),
   };
 }
 
