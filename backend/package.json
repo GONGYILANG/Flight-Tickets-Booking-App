@@ -7,6 +7,9 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "indexes": "node src/scripts/createIndexes.js",
+    "indexes:bookings": "node src/scripts/migrateBookingIndexes.js",
+    "probe:transactions": "node src/scripts/probeTransactionSupport.js",
+    "reconcile:bookings": "node src/scripts/reconcileBookings.js",
     "seed": "node src/scripts/seed.js",
     "test": "node --test --test-concurrency=1"
   },

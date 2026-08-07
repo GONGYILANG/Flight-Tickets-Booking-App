@@ -42,9 +42,9 @@ const bookingSchema = new Schema(
     idempotencyKey: {
       type: String,
       required: true,
-      unique: true,
+      lowercase: true,
       trim: true,
-      maxlength: 100,
+      maxlength: 36,
     },
     cancelledAt: {
       type: Date,
@@ -57,7 +57,11 @@ const bookingSchema = new Schema(
   },
 );
 
-bookingSchema.index({ user: 1, createdAt: -1 });
+bookingSchema.index(
+  { user: 1, idempotencyKey: 1 },
+  { unique: true, name: "user_1_idempotencyKey_1" },
+);
+bookingSchema.index({ user: 1, createdAt: -1, _id: -1 });
 bookingSchema.index({ flight: 1, status: 1 });
 
 export default mongoose.model("Booking", bookingSchema);

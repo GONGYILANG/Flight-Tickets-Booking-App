@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import User from "../models/User.js";
 import { verifyAccessToken } from "../services/authService.js";
 
@@ -22,6 +23,10 @@ export async function authenticate(request, _response, next) {
     }
 
     const payload = verifyAccessToken(match[1]);
+    if (!mongoose.isObjectIdOrHexString(payload.sub)) {
+      throw authError("INVALID_TOKEN", "Access token is invalid", 401);
+    }
+
     const user = await User.findById(payload.sub);
 
     if (!user) {
