@@ -2,6 +2,36 @@ import mongoose from "mongoose";
 
 const { Schema } = mongoose;
 
+const priceSnapshotSchema = new Schema(
+  {
+    unitPriceCents: {
+      type: Number,
+      required: true,
+      min: 1,
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "unitPriceCents must be a safe integer",
+      },
+    },
+    totalPriceCents: {
+      type: Number,
+      required: true,
+      min: 1,
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "totalPriceCents must be a safe integer",
+      },
+    },
+    currency: {
+      type: String,
+      required: true,
+      enum: ["USD"],
+      default: "USD",
+    },
+  },
+  { _id: false },
+);
+
 const bookingSchema = new Schema(
   {
     bookingReference: {
@@ -46,6 +76,10 @@ const bookingSchema = new Schema(
       trim: true,
       maxlength: 36,
     },
+    priceSnapshot: {
+      type: priceSnapshotSchema,
+      required: true,
+    },
     cancelledAt: {
       type: Date,
       default: null,
@@ -63,5 +97,20 @@ bookingSchema.index(
 );
 bookingSchema.index({ user: 1, createdAt: -1, _id: -1 });
 bookingSchema.index({ flight: 1, status: 1 });
+
+bookingSchema.pre("validate", function validatePriceSnapshot() {
+  if (
+    this.priceSnapshot &&
+    Number.isSafeInteger(this.priceSnapshot.unitPriceCents) &&
+    Number.isSafeInteger(this.seatCount) &&
+    this.priceSnapshot.totalPriceCents !==
+      this.priceSnapshot.unitPriceCents * this.seatCount
+  ) {
+    this.invalidate(
+      "priceSnapshot.totalPriceCents",
+      "totalPriceCents must equal unitPriceCents multiplied by seatCount",
+    );
+  }
+});
 
 export default mongoose.model("Booking", bookingSchema);

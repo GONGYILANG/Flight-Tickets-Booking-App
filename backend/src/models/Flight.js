@@ -34,6 +34,15 @@ const flightSchema = new Schema(
       type: Date,
       required: true,
     },
+    priceCents: {
+      type: Number,
+      required: true,
+      min: 1,
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "Flight price must be a safe integer number of cents",
+      },
+    },
     totalSeats: {
       type: Number,
       required: true,
@@ -61,6 +70,7 @@ flightSchema.index({ airline: 1, departureAt: 1 });
 flightSchema.index({ departureAt: 1, _id: 1 });
 flightSchema.index({ arrivalAt: 1, _id: 1 });
 flightSchema.index({ availableSeats: 1, _id: 1 });
+flightSchema.index({ priceCents: 1, _id: 1 });
 flightSchema.index(
   { airline: 1, flightNumber: 1, departureAt: 1 },
   { unique: true },

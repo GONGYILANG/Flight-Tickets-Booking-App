@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import "dotenv/config";
 import { DateTime } from "luxon";
+import mongoose from "mongoose";
 import request from "supertest";
-import { getDepartureWindow } from "../src/services/flightService.js";
+import {
+  formatUsdAmount,
+  getDepartureWindow,
+} from "../src/services/flightService.js";
 import Flight from "../src/models/Flight.js";
 
 process.env.NODE_ENV = "test";
@@ -22,6 +27,59 @@ before(async () => {
 
 after(async () => {
   await disconnectDatabase();
+});
+
+function validFlightData(overrides = {}) {
+  const departureAt = new Date("2099-01-15T01:00:00.000Z");
+
+  return {
+    airline: new mongoose.Types.ObjectId(),
+    flightNumber: `VT${randomUUID().replaceAll("-", "").slice(0, 8)}`,
+    originAirport: new mongoose.Types.ObjectId(),
+    destinationAirport: new mongoose.Types.ObjectId(),
+    departureAt,
+    arrivalAt: new Date(departureAt.getTime() + 3 * 60 * 60 * 1000),
+    priceCents: 38000,
+    totalSeats: 100,
+    availableSeats: 100,
+    status: "SCHEDULED",
+    ...overrides,
+  };
+}
+
+test("flight price requires a positive safe integer number of cents", async () => {
+  for (const priceCents of [
+    undefined,
+    0,
+    -1,
+    38000.5,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    const flight = new Flight(validFlightData({ priceCents }));
+
+    await assert.rejects(
+      () => flight.validate(),
+      (error) => Boolean(error.errors?.priceCents),
+    );
+  }
+
+  await assert.doesNotReject(() =>
+    new Flight(validFlightData({ priceCents: 1 })).validate(),
+  );
+
+  assert.ok(
+    Flight.schema
+      .indexes()
+      .some(
+        ([fields]) => fields.priceCents === 1 && fields._id === 1,
+      ),
+    "Flight schema must declare the stable price sorting index",
+  );
+});
+
+test("flight prices format USD cents as fixed two-decimal strings", () => {
+  assert.equal(formatUsdAmount(38000), "380.00");
+  assert.equal(formatUsdAmount(38005), "380.05");
 });
 
 test("flight search validates required and malformed parameters", async () => {
@@ -44,7 +102,7 @@ test("flight search validates required and malformed parameters", async () => {
       passengers: 0,
       page: "one",
       limit: 100,
-      sortBy: "price",
+      sortBy: "durationMinutes",
       sortOrder: "sideways",
       departurePeriod: "dawn",
       airlineCode: "!",
@@ -105,6 +163,9 @@ test("flight search returns populated direct flights for the origin-local date",
     assert.ok(flight.availableSeats >= 1);
     assert.equal(typeof flight.airline.code, "string");
     assert.ok(flight.durationMinutes > 0);
+    assert.equal(flight.price.currency, "USD");
+    assert.match(flight.price.amount, /^\d+\.\d{2}$/);
+    assert.equal("priceCents" in flight, false);
     assert.equal(
       DateTime.fromISO(flight.departureAt)
         .setZone(flight.originAirport.timezone)
@@ -115,6 +176,18 @@ test("flight search returns populated direct flights for the origin-local date",
 
   const departureTimes = flights.map(({ departureAt }) => departureAt);
   assert.deepEqual(departureTimes, [...departureTimes].sort());
+
+  const flightsByNumber = new Map(
+    flights.map((flight) => [flight.flightNumber, flight]),
+  );
+  assert.deepEqual(flightsByNumber.get("CX101").price, {
+    amount: "380.00",
+    currency: "USD",
+  });
+  assert.deepEqual(flightsByNumber.get("CA115").price, {
+    amount: "325.00",
+    currency: "USD",
+  });
 });
 
 test("flight search supports passenger filtering, sorting, and pagination", async () => {
@@ -142,25 +215,101 @@ test("flight search supports passenger filtering, sorting, and pagination", asyn
 });
 
 test("flight search supports every advertised database sort", async () => {
-  for (const sortBy of ["departureAt", "arrivalAt", "availableSeats"]) {
-    const response = await request(app)
-      .get("/api/flights/search")
-      .query({
-        origin: "PEK",
-        destination: "HKG",
-        departureDate: "2026-12-08",
-        sortBy,
-        sortOrder: "asc",
-      })
-      .expect(200);
+  for (const sortBy of [
+    "departureAt",
+    "arrivalAt",
+    "availableSeats",
+    "price",
+  ]) {
+    for (const sortOrder of ["asc", "desc"]) {
+      const response = await request(app)
+        .get("/api/flights/search")
+        .query({
+          origin: "PEK",
+          destination: "HKG",
+          departureDate: "2026-12-08",
+          sortBy,
+          sortOrder,
+        })
+        .expect(200);
 
-    const values = response.body.data.flights.map((flight) => {
-      if (["departureAt", "arrivalAt"].includes(sortBy)) {
-        return new Date(flight[sortBy]).getTime();
-      }
-      return flight[sortBy];
-    });
-    assert.deepEqual(values, [...values].sort((first, second) => first - second));
+      const values = response.body.data.flights.map((flight) => {
+        if (["departureAt", "arrivalAt"].includes(sortBy)) {
+          return new Date(flight[sortBy]).getTime();
+        }
+        if (sortBy === "price") {
+          return Number(flight.price.amount);
+        }
+        return flight[sortBy];
+      });
+      const direction = sortOrder === "asc" ? 1 : -1;
+      assert.deepEqual(
+        values,
+        [...values].sort((first, second) => (first - second) * direction),
+      );
+      assert.equal(response.body.data.search.sortBy, sortBy);
+      assert.equal(response.body.data.search.sortOrder, sortOrder);
+    }
+  }
+});
+
+test("price sorting uses _id as a stable pagination tie-breaker", async () => {
+  const template = await Flight.findOne({ flightNumber: "CX101" }).lean();
+  assert.ok(template, "CX101 seed flight is required for this test");
+
+  const firstDeparture = new Date("2099-01-15T01:00:00.000Z");
+  const secondDeparture = new Date("2099-01-15T02:00:00.000Z");
+  const createdFlights = await Flight.create([
+    {
+      ...validFlightData({
+        airline: template.airline,
+        originAirport: template.originAirport,
+        destinationAirport: template.destinationAirport,
+        departureAt: firstDeparture,
+        arrivalAt: new Date(firstDeparture.getTime() + 3 * 60 * 60 * 1000),
+        priceCents: 41000,
+      }),
+    },
+    {
+      ...validFlightData({
+        airline: template.airline,
+        originAirport: template.originAirport,
+        destinationAirport: template.destinationAirport,
+        departureAt: secondDeparture,
+        arrivalAt: new Date(secondDeparture.getTime() + 3 * 60 * 60 * 1000),
+        priceCents: 41000,
+      }),
+    },
+  ]);
+  const createdIds = createdFlights.map(({ _id }) => _id);
+
+  try {
+    const pageIds = [];
+    for (const page of [1, 2]) {
+      const response = await request(app)
+        .get("/api/flights/search")
+        .query({
+          origin: "PEK",
+          destination: "HKG",
+          departureDate: "2099-01-15",
+          sortBy: "price",
+          sortOrder: "asc",
+          page,
+          limit: 1,
+        })
+        .expect(200);
+
+      assert.equal(response.body.data.flights.length, 1);
+      pageIds.push(response.body.data.flights[0].id);
+    }
+
+    const expectedIds = createdFlights
+      .map(({ _id }) => _id.toString())
+      .sort();
+    assert.deepEqual(pageIds, expectedIds);
+    assert.equal(new Set(pageIds).size, 2);
+  } finally {
+    await Flight.deleteMany({ _id: { $in: createdIds } });
   }
 });
 
@@ -326,6 +475,9 @@ test("flight detail returns a populated flight", async () => {
   assert.equal(response.body.data.flight.originAirport.iataCode, "PEK");
   assert.equal(response.body.data.flight.destinationAirport.iataCode, "HKG");
   assert.equal(typeof response.body.data.flight.airline.name, "string");
+  assert.equal(response.body.data.flight.price.currency, "USD");
+  assert.match(response.body.data.flight.price.amount, /^\d+\.\d{2}$/);
+  assert.equal("priceCents" in response.body.data.flight, false);
 });
 
 test("flight detail distinguishes invalid and missing flight IDs", async () => {

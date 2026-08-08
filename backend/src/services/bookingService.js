@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import Booking from "../models/Booking.js";
 import Flight from "../models/Flight.js";
 import User from "../models/User.js";
-import { toFlightResponse } from "./flightService.js";
+import { formatUsdAmount, toFlightResponse } from "./flightService.js";
 
 const bookableStatuses = ["SCHEDULED", "DELAYED"];
 const idempotencyReadAttempts = 8;
@@ -57,6 +57,48 @@ function toIsoString(value) {
   return value ? new Date(value).toISOString() : null;
 }
 
+function isValidPriceSnapshot(priceSnapshot, seatCount) {
+  return (
+    priceSnapshot?.currency === "USD" &&
+    Number.isSafeInteger(priceSnapshot.unitPriceCents) &&
+    priceSnapshot.unitPriceCents > 0 &&
+    Number.isSafeInteger(priceSnapshot.totalPriceCents) &&
+    priceSnapshot.totalPriceCents > 0 &&
+    priceSnapshot.totalPriceCents ===
+      priceSnapshot.unitPriceCents * seatCount
+  );
+}
+
+function toPricingResponse(priceSnapshot, seatCount) {
+  if (!isValidPriceSnapshot(priceSnapshot, seatCount)) {
+    throw serviceError(
+      "BOOKING_CONSISTENCY_ERROR",
+      "Booking pricing data is missing or invalid",
+      500,
+    );
+  }
+
+  return {
+    unitAmount: formatUsdAmount(priceSnapshot.unitPriceCents),
+    totalAmount: formatUsdAmount(priceSnapshot.totalPriceCents),
+    currency: priceSnapshot.currency,
+  };
+}
+
+function createPriceSnapshot(flight, seatCount) {
+  const unitPriceCents = flight.priceCents;
+  const totalPriceCents = unitPriceCents * seatCount;
+  const priceSnapshot = {
+    unitPriceCents,
+    totalPriceCents,
+    currency: "USD",
+  };
+
+  return isValidPriceSnapshot(priceSnapshot, seatCount)
+    ? priceSnapshot
+    : null;
+}
+
 export function toBookingResponse(booking) {
   const populatedFlight =
     booking.flight && booking.flight.departureAt ? booking.flight : null;
@@ -66,6 +108,7 @@ export function toBookingResponse(booking) {
     bookingReference: booking.bookingReference,
     flight: populatedFlight ? toFlightResponse(populatedFlight) : null,
     seatCount: booking.seatCount,
+    pricing: toPricingResponse(booking.priceSnapshot, booking.seatCount),
     source: booking.source,
     status: booking.status,
     createdAt: toIsoString(booking.createdAt),
@@ -263,6 +306,24 @@ async function tryCreateBooking(input, referenceAttempt) {
     );
   }
 
+  const priceSnapshot = createPriceSnapshot(flight, input.seatCount);
+  if (!priceSnapshot) {
+    await compensateSeatDeduction({
+      flight,
+      seatCount: input.seatCount,
+      bookingReference,
+    });
+    console.error("Booking creation blocked by invalid flight pricing", {
+      bookingReference,
+      flightId: flight._id.toString(),
+    });
+    throw serviceError(
+      "BOOKING_CREATION_FAILED",
+      "Booking could not be created because flight pricing is unavailable; no seats were charged",
+      500,
+    );
+  }
+
   let booking;
   try {
     booking = await Booking.create({
@@ -274,6 +335,7 @@ async function tryCreateBooking(input, referenceAttempt) {
       source: input.source,
       status: "CONFIRMED",
       idempotencyKey: input.idempotencyKey,
+      priceSnapshot,
     });
   } catch (insertError) {
     let insertedDespiteError;

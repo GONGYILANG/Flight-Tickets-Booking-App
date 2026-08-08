@@ -8,6 +8,7 @@ const allowedSortFields = new Set([
   "departureAt",
   "arrivalAt",
   "availableSeats",
+  "price",
 ]);
 
 function invalidRequest(fields) {
@@ -160,7 +161,8 @@ export function validateFlightSearch(request, _response, next) {
     if (typeof sortBy !== "string" || !allowedSortFields.has(sortBy)) {
       fields.push({
         field: "sortBy",
-        message: "sortBy must be departureAt, arrivalAt, or availableSeats",
+        message:
+          "sortBy must be departureAt, arrivalAt, availableSeats, or price",
       });
     }
 

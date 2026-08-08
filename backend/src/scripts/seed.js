@@ -51,6 +51,7 @@ const flightSeeds = [
     destination: "HKG",
     departureAt: "2026-12-08T01:00:00.000Z",
     arrivalAt: "2026-12-08T04:45:00.000Z",
+    priceCents: 38000,
     totalSeats: 120,
   },
   {
@@ -60,6 +61,7 @@ const flightSeeds = [
     destination: "HKG",
     departureAt: "2026-12-08T02:30:00.000Z",
     arrivalAt: "2026-12-08T06:10:00.000Z",
+    priceCents: 32500,
     totalSeats: 150,
   },
   {
@@ -69,6 +71,7 @@ const flightSeeds = [
     destination: "HKG",
     departureAt: "2026-12-08T04:00:00.000Z",
     arrivalAt: "2026-12-08T07:50:00.000Z",
+    priceCents: 29000,
     totalSeats: 100,
   },
   {
@@ -78,6 +81,7 @@ const flightSeeds = [
     destination: "PEK",
     departureAt: "2026-12-12T01:15:00.000Z",
     arrivalAt: "2026-12-12T04:45:00.000Z",
+    priceCents: 36500,
     totalSeats: 120,
   },
   {
@@ -87,6 +91,7 @@ const flightSeeds = [
     destination: "PEK",
     departureAt: "2026-12-12T03:20:00.000Z",
     arrivalAt: "2026-12-12T07:00:00.000Z",
+    priceCents: 31000,
     totalSeats: 150,
   },
   {
@@ -96,6 +101,7 @@ const flightSeeds = [
     destination: "PVG",
     departureAt: "2026-12-10T00:50:00.000Z",
     arrivalAt: "2026-12-10T03:30:00.000Z",
+    priceCents: 24000,
     totalSeats: 110,
   },
 ];
@@ -139,6 +145,9 @@ async function upsertFlights(airlines, airports) {
         departureAt,
       },
       {
+        $set: {
+          priceCents: seed.priceCents,
+        },
         $setOnInsert: {
           airline: airline._id,
           flightNumber: seed.flightNumber,

@@ -96,6 +96,7 @@ async function createUser(label) {
 async function createFlight({
   totalSeats = 10,
   availableSeats = totalSeats,
+  priceCents = 32500,
   status = "SCHEDULED",
   departureAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
 } = {}) {
@@ -109,6 +110,7 @@ async function createFlight({
     arrivalAt: new Date(departureAt.getTime() + 3 * 60 * 60 * 1000),
     totalSeats,
     availableSeats,
+    priceCents,
     status,
   });
   createdFlightIds.push(flight._id);
@@ -139,6 +141,11 @@ function directBookingData({ user, flight, seatCount = 1, status = "CONFIRMED" }
     source: "UI",
     status,
     idempotencyKey: uuid,
+    priceSnapshot: {
+      unitPriceCents: flight.priceCents,
+      totalPriceCents: flight.priceCents * seatCount,
+      currency: "USD",
+    },
     cancelledAt: status === "CANCELLED" ? new Date() : null,
   };
 }
@@ -285,6 +292,12 @@ test("creating and replaying a booking changes inventory exactly once", async ()
   const body = bookingRequest(primaryFlight._id, primaryIdempotencyKey.toUpperCase(), {
     seatCount: 2,
     source: "ai",
+    price: { amount: "0.01", currency: "USD" },
+    priceSnapshot: {
+      unitPriceCents: 1,
+      totalPriceCents: 2,
+      currency: "USD",
+    },
   });
 
   const created = await request(app)
@@ -298,6 +311,18 @@ test("creating and replaying a booking changes inventory exactly once", async ()
   assert.equal(created.body.data.booking.source, "AI");
   assert.equal(created.body.data.booking.status, "CONFIRMED");
   assert.equal(created.body.data.booking.flight.id, primaryFlight._id.toString());
+  assert.deepEqual(created.body.data.booking.pricing, {
+    unitAmount: "325.00",
+    totalAmount: "650.00",
+    currency: "USD",
+  });
+
+  const storedBooking = await Booking.findById(primaryBookingId).lean();
+  assert.deepEqual(storedBooking.priceSnapshot, {
+    unitPriceCents: 32500,
+    totalPriceCents: 65000,
+    currency: "USD",
+  });
 
   let storedFlight = await Flight.findById(primaryFlight._id).lean();
   assert.equal(storedFlight.availableSeats, 8);
@@ -309,6 +334,10 @@ test("creating and replaying a booking changes inventory exactly once", async ()
     .expect(200);
   assert.equal(replayed.body.meta.idempotentReplay, true);
   assert.equal(replayed.body.data.booking.id, primaryBookingId);
+  assert.deepEqual(
+    replayed.body.data.booking.pricing,
+    created.body.data.booking.pricing,
+  );
   assert.equal(
     await Booking.countDocuments({
       user: firstUser._id,
@@ -320,8 +349,48 @@ test("creating and replaying a booking changes inventory exactly once", async ()
   assert.equal(storedFlight.availableSeats, 8);
 
   const serialized = JSON.stringify(created.body.data.booking);
-  for (const internalField of ["idempotencyKey", '"user"', '"__v"']) {
+  for (const internalField of [
+    "idempotencyKey",
+    "priceSnapshot",
+    '"user"',
+    '"__v"',
+  ]) {
     assert.equal(serialized.includes(internalField), false);
+  }
+});
+
+test("booking pricing remains the original snapshot after the Flight price changes", async () => {
+  await Flight.updateOne(
+    { _id: primaryFlight._id },
+    { $set: { priceCents: 49999 } },
+  );
+
+  try {
+    const response = await request(app)
+      .get("/api/bookings/me")
+      .set(authorization(firstToken))
+      .expect(200);
+    const booking = response.body.data.bookings.find(
+      ({ id }) => id === primaryBookingId,
+    );
+    assert.ok(booking);
+    assert.deepEqual(booking.pricing, {
+      unitAmount: "325.00",
+      totalAmount: "650.00",
+      currency: "USD",
+    });
+
+    const storedBooking = await Booking.findById(primaryBookingId).lean();
+    assert.deepEqual(storedBooking.priceSnapshot, {
+      unitPriceCents: 32500,
+      totalPriceCents: 65000,
+      currency: "USD",
+    });
+  } finally {
+    await Flight.updateOne(
+      { _id: primaryFlight._id },
+      { $set: { priceCents: 32500 } },
+    );
   }
 });
 
@@ -416,6 +485,23 @@ test("a known booking insert failure immediately compensates inventory", async (
   assert.equal((await Flight.findById(flight._id)).availableSeats, 3);
 });
 
+test("an invalid Flight price is rejected and the deducted seats are compensated", async () => {
+  const flight = await createFlight({ totalSeats: 3 });
+  await Flight.collection.updateOne(
+    { _id: flight._id },
+    { $unset: { priceCents: "" } },
+  );
+
+  const response = await request(app)
+    .post("/api/bookings")
+    .set(authorization(firstToken))
+    .send(bookingRequest(flight._id))
+    .expect(500);
+  assert.equal(response.body.error.code, "BOOKING_CREATION_FAILED");
+  assert.equal((await Flight.findById(flight._id)).availableSeats, 3);
+  assert.equal(await Booking.countDocuments({ flight: flight._id }), 0);
+});
+
 test("a failed create compensation returns a sanitized consistency error", async () => {
   const flight = await createFlight({ totalSeats: 3 });
   const originalCreate = Booking.create;
@@ -452,6 +538,11 @@ test("first, repeated, and concurrent cancellation restore seats only once", asy
     .expect(200);
   assert.equal(firstCancellation.body.meta.alreadyCancelled, false);
   assert.equal(firstCancellation.body.data.booking.status, "CANCELLED");
+  assert.deepEqual(firstCancellation.body.data.booking.pricing, {
+    unitAmount: "325.00",
+    totalAmount: "650.00",
+    currency: "USD",
+  });
   assert.equal((await Flight.findById(primaryFlight._id)).availableSeats, 9);
 
   const repeatedCancellation = await request(app)
@@ -459,6 +550,10 @@ test("first, repeated, and concurrent cancellation restore seats only once", asy
     .set(authorization(firstToken))
     .expect(200);
   assert.equal(repeatedCancellation.body.meta.alreadyCancelled, true);
+  assert.deepEqual(
+    repeatedCancellation.body.data.booking.pricing,
+    firstCancellation.body.data.booking.pricing,
+  );
   assert.equal((await Flight.findById(primaryFlight._id)).availableSeats, 9);
 
   const replayAfterCancellation = await request(app)
@@ -473,6 +568,10 @@ test("first, repeated, and concurrent cancellation restore seats only once", asy
     .expect(200);
   assert.equal(replayAfterCancellation.body.data.booking.status, "CANCELLED");
   assert.equal(replayAfterCancellation.body.data.booking.id, primaryBookingId);
+  assert.deepEqual(
+    replayAfterCancellation.body.data.booking.pricing,
+    firstCancellation.body.data.booking.pricing,
+  );
   assert.equal((await Flight.findById(primaryFlight._id)).availableSeats, 9);
 
   const concurrentFlight = await createFlight({ totalSeats: 4 });
@@ -666,6 +765,7 @@ test("/me isolates users, uses stable pagination, and returns only the DTO", asy
         "createdAt",
         "flight",
         "id",
+        "pricing",
         "seatCount",
         "source",
         "status",

@@ -46,6 +46,21 @@ function safeReference(document, fields) {
   );
 }
 
+export function formatUsdAmount(priceCents) {
+  if (!Number.isSafeInteger(priceCents) || priceCents < 1) {
+    throw serviceError(
+      "INVALID_FLIGHT_PRICE",
+      "Flight has an invalid stored price",
+      500,
+    );
+  }
+
+  const cents = BigInt(priceCents);
+  const dollars = cents / 100n;
+  const remainder = (cents % 100n).toString().padStart(2, "0");
+  return `${dollars}.${remainder}`;
+}
+
 export function toFlightResponse(flight) {
   const departureAt = new Date(flight.departureAt);
   const arrivalAt = new Date(flight.arrivalAt);
@@ -73,6 +88,10 @@ export function toFlightResponse(flight) {
     durationMinutes: Math.round(
       (arrivalAt.getTime() - departureAt.getTime()) / 60000,
     ),
+    price: {
+      amount: formatUsdAmount(flight.priceCents),
+      currency: "USD",
+    },
     totalSeats: flight.totalSeats,
     availableSeats: flight.availableSeats,
     status: flight.status,
@@ -201,7 +220,9 @@ export async function searchFlights(criteria) {
 
   const direction = criteria.sortOrder === "asc" ? 1 : -1;
   const skip = (criteria.page - 1) * criteria.limit;
-  const sort = { [criteria.sortBy]: direction, _id: direction };
+  const sortField =
+    criteria.sortBy === "price" ? "priceCents" : criteria.sortBy;
+  const sort = { [sortField]: direction, _id: direction };
 
   const [matchingFlights, totalItems] = await Promise.all([
     Flight.find(filter)
