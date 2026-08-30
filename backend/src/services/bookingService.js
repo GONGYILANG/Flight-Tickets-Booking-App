@@ -102,6 +102,13 @@ function createPriceSnapshot(flight, seatCount) {
 export function toBookingResponse(booking) {
   const populatedFlight =
     booking.flight && booking.flight.departureAt ? booking.flight : null;
+  const cancellation =
+    booking.status === "CANCELLED"
+      ? {
+          source: booking.cancellationSource ?? "USER",
+          reason: booking.cancellationReason ?? null,
+        }
+      : null;
 
   return {
     id: booking._id.toString(),
@@ -111,6 +118,7 @@ export function toBookingResponse(booking) {
     pricing: toPricingResponse(booking.priceSnapshot, booking.seatCount),
     source: booking.source,
     status: booking.status,
+    cancellation,
     createdAt: toIsoString(booking.createdAt),
     updatedAt: toIsoString(booking.updatedAt),
     cancelledAt: toIsoString(booking.cancelledAt),
@@ -435,6 +443,9 @@ async function rollbackCancellation(booking, cancelledAt) {
         $set: {
           status: "CONFIRMED",
           cancelledAt: null,
+          cancellationSource: null,
+          cancelledBy: null,
+          cancellationReason: null,
         },
       },
     );
@@ -496,6 +507,9 @@ export async function cancelBooking({ userId, bookingId }) {
         $set: {
           status: "CANCELLED",
           cancelledAt,
+          cancellationSource: "USER",
+          cancelledBy: userId,
+          cancellationReason: null,
         },
       },
       { returnDocument: "after" },

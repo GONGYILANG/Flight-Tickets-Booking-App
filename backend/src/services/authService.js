@@ -16,6 +16,7 @@ export function toSafeUser(user) {
     email: user.email,
     displayName: user.displayName,
     status: user.status,
+    role: user.role ?? "USER",
   };
 }
 

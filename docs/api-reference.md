@@ -1,4 +1,4 @@
-# Flight Booking Backend API Reference
+ # Flight Booking Backend API Reference
 
 本文件描述当前 `backend/src` 实现的 HTTP API，供 Android 客户端、Thunder Client 测试，以及未来的 AI 工具调用使用。
 
@@ -28,6 +28,13 @@ Content-Type: application/json
 | 订单 | `POST` | `/api/bookings` | 是 |
 | 订单 | `GET` | `/api/bookings/me` | 是 |
 | 订单 | `PATCH` | `/api/bookings/:bookingId/cancel` | 是 |
+| 管理员 | `GET` | `/api/admin/users` | ADMIN |
+| 管理员 | `GET` | `/api/admin/users/:userId` | ADMIN |
+| 管理员 | `PATCH` | `/api/admin/users/:userId/status` | ADMIN |
+| 管理员 | `GET` | `/api/admin/bookings` | ADMIN |
+| 管理员 | `GET` | `/api/admin/bookings/:bookingId` | ADMIN |
+| 管理员 | `PATCH` | `/api/admin/bookings/:bookingId/cancel` | ADMIN |
+| 管理员 | `PATCH` | `/api/admin/flights/:flightId` | ADMIN |
 
 ## 通用约定
 
@@ -104,11 +111,13 @@ Authorization: Bearer <accessToken>
   "id": "66a1b2c3d4e5f67890123456",
   "email": "student@example.com",
   "displayName": "Student",
-  "status": "ACTIVE"
+  "status": "ACTIVE",
+  "role": "USER"
 }
 ```
 
 `status` 的可能值为 `ACTIVE`、`LOCKED`、`DISABLED`。
+`role` 的可能值为 `USER`、`ADMIN`；注册接口始终创建 `USER`。
 
 ### Airport
 
@@ -180,6 +189,7 @@ Authorization: Bearer <accessToken>
   },
   "source": "UI",
   "status": "CONFIRMED",
+  "cancellation": null,
   "createdAt": "2026-08-24T10:00:00.000Z",
   "updatedAt": "2026-08-24T10:00:00.000Z",
   "cancelledAt": null
@@ -243,7 +253,8 @@ Authorization: Bearer <accessToken>
       "id": "66a1b2c3d4e5f67890123456",
       "email": "student@example.com",
       "displayName": "Student",
-      "status": "ACTIVE"
+      "status": "ACTIVE",
+      "role": "USER"
     },
     "accessToken": "<JWT>",
     "tokenType": "Bearer",
@@ -295,7 +306,8 @@ Authorization: Bearer <accessToken>
       "id": "66a1b2c3d4e5f67890123456",
       "email": "student@example.com",
       "displayName": "Student",
-      "status": "ACTIVE"
+      "status": "ACTIVE",
+      "role": "USER"
     }
   }
 }
@@ -523,6 +535,7 @@ GET /api/flights/66a1b2c3d4e5f67890123456
       },
       "source": "UI",
       "status": "CONFIRMED",
+      "cancellation": null,
       "createdAt": "2026-08-24T10:00:00.000Z",
       "updatedAt": "2026-08-24T10:00:00.000Z",
       "cancelledAt": null
@@ -626,6 +639,10 @@ Authorization: Bearer <accessToken>
       },
       "source": "UI",
       "status": "CANCELLED",
+      "cancellation": {
+        "source": "USER",
+        "reason": null
+      },
       "createdAt": "2026-08-24T10:00:00.000Z",
       "updatedAt": "2026-08-24T10:05:00.000Z",
       "cancelledAt": "2026-08-24T10:05:00.000Z"
@@ -657,17 +674,233 @@ Authorization: Bearer <accessToken>
 - `503 BOOKING_WRITES_PAUSED`：维护期间暂停取消。
 - `500 BOOKING_CONSISTENCY_ERROR`：服务端无法确认库存恢复或回滚结果，需要维护处理。
 
+## 管理员 API
+
+管理员继续使用 `POST /api/auth/login` 登录。所有 `/api/admin/*` 请求都必须携带 Bearer Token，且数据库中的当前用户必须同时满足：
+
+```text
+status = ACTIVE
+role = ADMIN
+```
+
+普通用户访问管理接口返回 `403 ADMIN_REQUIRED`。管理员权限以数据库当前值为准，角色撤销或账号锁定后，已签发的 Token 也会立即失去管理权限。
+
+### `GET /api/admin/users`
+
+查询所有注册用户。
+
+| 参数 | 必填 | 默认值 | 规则 |
+| --- | --- | --- | --- |
+| `q` | 否 | — | 按邮箱或昵称进行不区分大小写的包含匹配，1–100 个字符。 |
+| `status` | 否 | — | `ACTIVE`、`LOCKED`、`DISABLED`。 |
+| `role` | 否 | — | `USER`、`ADMIN`。 |
+| `page` | 否 | `1` | 整数，范围 `1–10000`。 |
+| `limit` | 否 | `20` | 整数，范围 `1–50`。 |
+
+结果按 `createdAt DESC, _id DESC` 排序：
+
+```json
+{
+  "data": {
+    "users": [
+      {
+        "id": "66a1b2c3d4e5f67890123456",
+        "email": "student@example.com",
+        "displayName": "Student",
+        "status": "ACTIVE",
+        "role": "USER",
+        "createdAt": "2026-08-24T10:00:00.000Z",
+        "updatedAt": "2026-08-24T10:00:00.000Z"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "totalItems": 1,
+      "totalPages": 1
+    }
+  }
+}
+```
+
+### `GET /api/admin/users/:userId`
+
+读取一个用户及其订单数量摘要：
+
+```json
+{
+  "data": {
+    "user": { "...": "管理员 User DTO" },
+    "statusChange": null,
+    "bookingSummary": {
+      "total": 10,
+      "confirmed": 7,
+      "cancelled": 3
+    }
+  }
+}
+```
+
+用户不存在时返回 `404 USER_NOT_FOUND`。
+
+### `PATCH /api/admin/users/:userId/status`
+
+锁定、停用或恢复用户：
+
+```json
+{
+  "status": "LOCKED",
+  "reason": "Suspicious account activity"
+}
+```
+
+- `reason` 去除首尾空格后必须为 3–500 个字符。
+- 管理员不能锁定或停用自己。
+- 不能锁定或停用最后一个有效管理员。
+- 相同状态重放返回 `meta.changed=false`。
+- 接口不能修改邮箱、昵称、密码或角色。
+
+### `GET /api/admin/bookings`
+
+查询全部用户订单。支持：
+
+```text
+userId
+flightId
+bookingReference
+status          CONFIRMED | CANCELLED
+source          UI | AI
+createdFrom     ISO 8601 时间
+createdTo       ISO 8601 时间
+page
+limit
+```
+
+结果按 `createdAt DESC, _id DESC` 排序。每个管理员 Booking DTO 在普通 Booking DTO 基础上增加：
+
+```json
+{
+  "user": {
+    "id": "66a1b2c3d4e5f67890123456",
+    "email": "student@example.com",
+    "displayName": "Student",
+    "status": "ACTIVE",
+    "role": "USER"
+  }
+}
+```
+
+取消订单还会在 `cancellation.cancelledBy` 中返回取消操作者的安全用户摘要。响应不会包含 `idempotencyKey`、`priceSnapshot` 或 `passwordHash`。
+
+### `GET /api/admin/bookings/:bookingId`
+
+返回单个管理员 Booking DTO。不存在时返回 `404 BOOKING_NOT_FOUND`。
+
+### `PATCH /api/admin/bookings/:bookingId/cancel`
+
+管理员代用户取消尚未起飞航班的确认订单：
+
+```json
+{
+  "reason": "Cancelled after customer support request"
+}
+```
+
+- 订单必须为 `CONFIRMED`，航班必须为未来的 `SCHEDULED/DELAYED` 航班。
+- 首次取消写入 `cancellation.source=ADMIN` 并恢复座位。
+- 重复或并发取消不会再次恢复座位，返回 `meta.alreadyCancelled=true`。
+- 不支持重新确认、编辑、删除或代创建订单。
+
+### `PATCH /api/admin/flights/:flightId`
+
+修改航班价格、状态，或在一个请求中同时修改两者：
+
+```json
+{
+  "status": "DELAYED",
+  "priceCents": 42000,
+  "reason": "Operational delay"
+}
+```
+
+规则：
+
+- 至少提供 `status` 或 `priceCents`，且只允许 `status`、`priceCents`、`reason` 三个字段。
+- `priceCents` 必须是正的安全整数；只有 `SCHEDULED/DELAYED` 航班可调价。
+- 调价不会修改已有订单的价格快照，新订单使用新价格。
+- 提供 `status` 时，`reason` 必填且长度为 3–500。
+- 状态转换只允许：
+  - `SCHEDULED -> DELAYED | CANCELLED | DEPARTED`
+  - `DELAYED -> SCHEDULED | CANCELLED | DEPARTED`
+  - `DEPARTED -> ARRIVED`
+- `CANCELLED`、`ARRIVED` 为终止状态；相同状态重放不重复改变状态。
+
+成功响应中的管理员 Flight DTO在普通 Flight DTO 基础上增加：
+
+```json
+{
+  "priceCents": 42000,
+  "statusUpdatedAt": "2026-08-24T10:00:00.000Z",
+  "statusReason": "Operational delay"
+}
+```
+
+响应 `meta` 包含：
+
+```json
+{
+  "changed": true,
+  "changedFields": ["status", "priceCents"],
+  "affectedBookings": 0
+}
+```
+
+将航班改为 `CANCELLED` 时，服务端会取消该航班全部 `CONFIRMED` 订单、写入 `cancellation.source=FLIGHT`，并把 `availableSeats` 恢复为 `totalSeats`。重复请求会继续修复遗漏订单，但不会重复修改已取消订单。
+
+管理端查询航班继续使用现有 `GET /api/flights/search` 和 `GET /api/flights/:flightId`，没有管理员专用 GET、创建或删除接口。
+
+### 管理员角色和维护命令
+
+现有用户在部署前执行默认只报告的迁移：
+
+```powershell
+npm run migrate:admin
+```
+
+暂停 Booking 写入后应用迁移：
+
+```powershell
+$env:BOOKING_WRITES_PAUSED="true"
+npm run migrate:admin -- --apply
+```
+
+授予管理员角色：
+
+```powershell
+npm run admin:role -- --email admin@example.com --role ADMIN --apply
+```
+
+检查航班取消与订单状态一致性：
+
+```powershell
+npm run reconcile:admin
+```
+
+修复时同样要求维护窗口和 `BOOKING_WRITES_PAUSED=true`。
+
 ## 主要错误码速查
 
 | HTTP 状态 | 错误码 | 含义 |
 | --- | --- | --- |
 | 400 | `INVALID_REQUEST` | 请求体、路径参数或查询参数不符合接口规则。 |
 | 400 | `INVALID_ID` | 服务层收到的 ID 不是有效 ObjectId。 |
+| 400 | `ADMIN_REASON_REQUIRED` | 管理操作缺少有效原因。 |
 | 401 | `AUTH_REQUIRED` | 缺少或格式错误的 Bearer Token。 |
 | 401 | `INVALID_CREDENTIALS` | 登录邮箱或密码错误。 |
 | 401 | `INVALID_TOKEN` | Token 无效、签名不正确或用户不存在。 |
 | 401 | `TOKEN_EXPIRED` | Token 已过期。 |
 | 403 | `ACCOUNT_NOT_ACTIVE` | 用户状态不是 `ACTIVE`。 |
+| 403 | `ADMIN_REQUIRED` | 当前用户没有管理员权限。 |
 | 404 | `FLIGHT_NOT_FOUND` | 指定航班不存在。 |
 | 404 | `BOOKING_NOT_FOUND` | 订单不存在或不属于当前用户。 |
 | 404 | `ROUTE_NOT_FOUND` | 路由不存在。 |
@@ -675,8 +908,14 @@ Authorization: Bearer <accessToken>
 | 409 | `FLIGHT_NOT_FOUND_OR_SOLD_OUT` | 航班不可预订或余票不足。 |
 | 409 | `IDEMPOTENCY_KEY_CONFLICT` | 同一用户使用相同幂等 key 提交了不同预订请求。 |
 | 409 | `BOOKING_NOT_CANCELLABLE` | 订单当前不能取消。 |
+| 409 | `ADMIN_STATUS_CHANGE_FORBIDDEN` | 不允许管理员锁定或停用自身及其他管理员。 |
+| 409 | `INVALID_STATUS_TRANSITION` | 航班状态转换不合法。 |
+| 409 | `FLIGHT_PRICE_NOT_EDITABLE` | 当前航班状态不允许调价。 |
+| 409 | `USER_STATUS_CONFLICT` | 用户状态被另一个请求同时修改。 |
+| 409 | `FLIGHT_UPDATE_CONFLICT` | 航班被另一个请求同时修改。 |
 | 500 | `BOOKING_CREATION_FAILED` | 创建订单失败，系统已尝试恢复座位。 |
 | 500 | `BOOKING_CONSISTENCY_ERROR` | 座位和订单的补偿或恢复状态无法安全确认。 |
+| 500 | `ADMIN_CONSISTENCY_ERROR` | 航班或订单管理操作需要一致性修复。 |
 | 503 | `BOOKING_WRITES_PAUSED` | 维护期间暂停创建/取消订单。 |
 
 ## 推荐调用流程

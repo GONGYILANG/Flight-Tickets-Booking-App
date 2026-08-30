@@ -2,11 +2,16 @@ import "dotenv/config";
 import { connectDatabase, disconnectDatabase } from "../config/database.js";
 import Booking from "../models/Booking.js";
 import Flight from "../models/Flight.js";
+import User from "../models/User.js";
 
 async function createIndexes() {
   await connectDatabase();
-  await Promise.all([Flight.createIndexes(), Booking.createIndexes()]);
-  console.log("Flight and Booking indexes created");
+  await Promise.all([
+    Flight.createIndexes(),
+    Booking.createIndexes(),
+    User.createIndexes(),
+  ]);
+  console.log("Flight, Booking, and User indexes created");
 }
 
 try {

@@ -84,6 +84,22 @@ const bookingSchema = new Schema(
       type: Date,
       default: null,
     },
+    cancellationSource: {
+      type: String,
+      enum: ["USER", "ADMIN", "FLIGHT"],
+      default: null,
+    },
+    cancelledBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    cancellationReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -97,6 +113,9 @@ bookingSchema.index(
 );
 bookingSchema.index({ user: 1, createdAt: -1, _id: -1 });
 bookingSchema.index({ flight: 1, status: 1 });
+bookingSchema.index({ createdAt: -1, _id: -1 });
+bookingSchema.index({ status: 1, createdAt: -1, _id: -1 });
+bookingSchema.index({ flight: 1, createdAt: -1, _id: -1 });
 
 bookingSchema.pre("validate", function validatePriceSnapshot() {
   if (

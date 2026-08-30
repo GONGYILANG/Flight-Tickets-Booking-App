@@ -74,6 +74,7 @@ test("register creates an active user and automatically logs in", async () => {
   assert.equal(data.user.email, testEmail);
   assert.equal(data.user.displayName, "Authentication Test User");
   assert.equal(data.user.status, "ACTIVE");
+  assert.equal(data.user.role, "USER");
   assert.equal(data.tokenType, "Bearer");
   assert.equal(data.expiresIn, "2h");
   assert.equal(typeof accessToken, "string");
@@ -165,6 +166,7 @@ test("me returns the current safe user for a valid token", async () => {
 
   assert.equal(response.body.data.user.email, testEmail);
   assert.equal(response.body.data.user.status, "ACTIVE");
+  assert.equal(response.body.data.user.role, "USER");
   assert.equal(JSON.stringify(response.body).includes("passwordHash"), false);
 });
 

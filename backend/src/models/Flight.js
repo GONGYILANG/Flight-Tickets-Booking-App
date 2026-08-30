@@ -58,6 +58,21 @@ const flightSchema = new Schema(
       enum: ["SCHEDULED", "DELAYED", "CANCELLED", "DEPARTED", "ARRIVED"],
       default: "SCHEDULED",
     },
+    statusUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+    statusUpdatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    statusReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: null,
+    },
   },
   {
     timestamps: true,

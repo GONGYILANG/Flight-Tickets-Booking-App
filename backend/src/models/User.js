@@ -28,11 +28,37 @@ const userSchema = new mongoose.Schema(
       enum: ["ACTIVE", "LOCKED", "DISABLED"],
       default: "ACTIVE",
     },
+    role: {
+      type: String,
+      enum: ["USER", "ADMIN"],
+      default: "USER",
+      required: true,
+      index: true,
+    },
+    statusUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+    statusUpdatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    statusReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: null,
+    },
   },
   {
     timestamps: true,
     collection: "users",
   },
 );
+
+userSchema.index({ createdAt: -1, _id: -1 });
+userSchema.index({ status: 1, createdAt: -1, _id: -1 });
+userSchema.index({ role: 1, createdAt: -1, _id: -1 });
 
 export default mongoose.model("User", userSchema);

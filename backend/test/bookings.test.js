@@ -538,6 +538,10 @@ test("first, repeated, and concurrent cancellation restore seats only once", asy
     .expect(200);
   assert.equal(firstCancellation.body.meta.alreadyCancelled, false);
   assert.equal(firstCancellation.body.data.booking.status, "CANCELLED");
+  assert.deepEqual(firstCancellation.body.data.booking.cancellation, {
+    source: "USER",
+    reason: null,
+  });
   assert.deepEqual(firstCancellation.body.data.booking.pricing, {
     unitAmount: "325.00",
     totalAmount: "650.00",
@@ -761,6 +765,7 @@ test("/me isolates users, uses stable pagination, and returns only the DTO", asy
     for (const booking of response.body.data.bookings) {
       assert.deepEqual(Object.keys(booking).sort(), [
         "bookingReference",
+        "cancellation",
         "cancelledAt",
         "createdAt",
         "flight",

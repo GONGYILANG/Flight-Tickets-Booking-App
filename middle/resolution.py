@@ -634,7 +634,7 @@ class FlightBookingAssistant:
         *,
         deepseek_client: Any,
         tool_executor: ToolExecutor,
-        model: str = "deepseek-v4-pro",
+        model: str = "deepseek-v4-flash",
         timezone: str = "Asia/Singapore",
         max_tool_rounds: int = 8,
     ) -> None:

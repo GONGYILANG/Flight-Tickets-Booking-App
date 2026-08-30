@@ -9,8 +9,11 @@
     "indexes": "node src/scripts/createIndexes.js",
     "indexes:bookings": "node src/scripts/migrateBookingIndexes.js",
     "migrate:pricing": "node src/scripts/migratePricing.js",
+    "migrate:admin": "node src/scripts/migrateAdminData.js",
+    "admin:role": "node src/scripts/setUserRole.js",
     "probe:transactions": "node src/scripts/probeTransactionSupport.js",
     "reconcile:bookings": "node src/scripts/reconcileBookings.js",
+    "reconcile:admin": "node src/scripts/reconcileAdminCancellations.js",
     "seed": "node src/scripts/seed.js",
     "test": "node --test --test-concurrency=1"
   },
