@@ -314,9 +314,11 @@ test("price sorting uses _id as a stable pagination tie-breaker", async () => {
 });
 
 test("flight search interprets the date and periods in the origin timezone", async () => {
+  const windowReferenceTime = new Date("2026-01-01T00:00:00.000Z");
   const fullDay = getDepartureWindow(
     { departureDate: "2026-12-08", departurePeriod: null },
     "Asia/Shanghai",
+    windowReferenceTime,
   );
   assert.equal(fullDay.start.toISOString(), "2026-12-07T16:00:00.000Z");
   assert.equal(fullDay.end.toISOString(), "2026-12-08T16:00:00.000Z");
@@ -324,10 +326,12 @@ test("flight search interprets the date and periods in the origin timezone", asy
   const morning = getDepartureWindow(
     { departureDate: "2026-12-08", departurePeriod: "MORNING" },
     "Asia/Shanghai",
+    windowReferenceTime,
   );
   const afternoon = getDepartureWindow(
     { departureDate: "2026-12-08", departurePeriod: "AFTERNOON" },
     "Asia/Shanghai",
+    windowReferenceTime,
   );
   const elevenFiftyNine = new Date("2026-12-08T03:59:00.000Z");
   const noon = new Date("2026-12-08T04:00:00.000Z");
@@ -339,6 +343,7 @@ test("flight search interprets the date and periods in the origin timezone", asy
   const daylightSavingDay = getDepartureWindow(
     { departureDate: "2026-03-08", departurePeriod: null },
     "America/New_York",
+    windowReferenceTime,
   );
   assert.equal(
     daylightSavingDay.end.getTime() - daylightSavingDay.start.getTime(),
@@ -347,6 +352,7 @@ test("flight search interprets the date and periods in the origin timezone", asy
   const daylightSavingFallBackDay = getDepartureWindow(
     { departureDate: "2026-11-01", departurePeriod: null },
     "America/New_York",
+    windowReferenceTime,
   );
   assert.equal(
     daylightSavingFallBackDay.end.getTime() -
@@ -359,10 +365,26 @@ test("flight search interprets the date and periods in the origin timezone", asy
         getDepartureWindow(
           { departureDate: "2026-12-08", departurePeriod: null },
           invalidTimezone,
+          windowReferenceTime,
         ),
       (error) => error.code === "INVALID_AIRPORT_TIMEZONE",
     );
   }
+
+  const inProgressDay = getDepartureWindow(
+    { departureDate: "2026-12-08", departurePeriod: null },
+    "Asia/Shanghai",
+    new Date("2026-12-08T02:00:00.000Z"),
+  );
+  assert.equal(inProgressDay.start.toISOString(), "2026-12-08T02:00:00.000Z");
+  assert.equal(inProgressDay.end.toISOString(), "2026-12-08T16:00:00.000Z");
+
+  const expiredMorning = getDepartureWindow(
+    { departureDate: "2026-12-08", departurePeriod: "MORNING" },
+    "Asia/Shanghai",
+    new Date("2026-12-08T04:00:00.000Z"),
+  );
+  assert.equal(expiredMorning.start.getTime(), expiredMorning.end.getTime());
 
   const morningResponse = await request(app)
     .get("/api/flights/search")

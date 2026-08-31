@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   validateAdminBookingList,
   validateAdminCancellation,
+  validateAdminFlightList,
+  validateAdminFlightSchedule,
   validateAdminFlightUpdate,
   validateAdminUserList,
   validateAdminUserStatus,
@@ -96,4 +98,63 @@ test("flight update rejects unknown fields and status changes without reasons", 
     body: { status: "DELAYED" },
   });
   assert.equal(missingReason.code, "ADMIN_REASON_REQUIRED");
+});
+
+test("admin flight list normalizes operational filters and sorting", async () => {
+  const request = await runValidator(validateAdminFlightList, {
+    query: {
+      flightNumber: " cx101 ",
+      airlineCode: "cx",
+      origin: "pek",
+      destination: "hkg",
+      status: "delayed",
+      departureFrom: "2026-12-01T00:00:00.000Z",
+      departureTo: "2026-12-31T23:59:59.999Z",
+      sortBy: "price",
+      sortOrder: "DESC",
+      page: "2",
+      limit: "10",
+    },
+  });
+
+  assert.equal(request.validatedQuery.flightNumber, "CX101");
+  assert.equal(request.validatedQuery.airlineCode, "CX");
+  assert.equal(request.validatedQuery.origin, "PEK");
+  assert.equal(request.validatedQuery.destination, "HKG");
+  assert.equal(request.validatedQuery.status, "DELAYED");
+  assert.equal(request.validatedQuery.sortBy, "price");
+  assert.equal(request.validatedQuery.sortOrder, "desc");
+  assert.equal(request.validatedQuery.page, 2);
+  assert.equal(request.validatedQuery.limit, 10);
+});
+
+test("admin flight schedule validates complete versioned time changes", async () => {
+  const request = await runValidator(validateAdminFlightSchedule, {
+    body: {
+      departureAt: "2099-01-15T03:00:00.000Z",
+      arrivalAt: "2099-01-15T07:00:00.000Z",
+      expectedScheduleVersion: 0,
+      reason: "  Operational delay  ",
+    },
+  });
+  assert.equal(
+    request.validatedBody.departureAt.toISOString(),
+    "2099-01-15T03:00:00.000Z",
+  );
+  assert.equal(request.validatedBody.expectedScheduleVersion, 0);
+  assert.equal(request.validatedBody.reason, "Operational delay");
+
+  const invalid = await validationError(validateAdminFlightSchedule, {
+    body: {
+      departureAt: "2099-01-15T03:00:00",
+      arrivalAt: "2099-01-15T02:00:00.000Z",
+      expectedScheduleVersion: -1,
+      reason: "Delay",
+    },
+  });
+  assert.equal(invalid.code, "INVALID_REQUEST");
+  assert.deepEqual(
+    invalid.details.fields.map(({ field }) => field),
+    ["departureAt", "expectedScheduleVersion"],
+  );
 });

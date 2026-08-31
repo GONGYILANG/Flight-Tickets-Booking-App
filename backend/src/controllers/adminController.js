@@ -1,10 +1,13 @@
 import {
   cancelAdminBooking,
   getAdminBooking,
+  getAdminFlight,
   getAdminUser,
   listAdminBookings,
+  listAdminFlights,
   listAdminUsers,
   updateAdminFlight,
+  updateAdminFlightSchedule,
   updateAdminUserStatus,
 } from "../services/adminService.js";
 
@@ -49,6 +52,32 @@ export async function cancelBooking(request, response) {
   response.status(200).json({
     data: { booking: result.booking },
     meta: { alreadyCancelled: result.alreadyCancelled },
+  });
+}
+
+export async function listFlights(request, response) {
+  const result = await listAdminFlights(request.validatedQuery);
+  response.status(200).json({ data: result });
+}
+
+export async function getFlight(request, response) {
+  const flight = await getAdminFlight(request.params.flightId);
+  response.status(200).json({ data: { flight } });
+}
+
+export async function updateFlightSchedule(request, response) {
+  const result = await updateAdminFlightSchedule({
+    actorId: request.user._id,
+    flightId: request.params.flightId,
+    ...request.validatedBody,
+  });
+  response.status(200).json({
+    data: { flight: result.flight },
+    meta: {
+      changed: result.changed,
+      changedFields: result.changedFields,
+      affectedBookings: result.affectedBookings,
+    },
   });
 }
 

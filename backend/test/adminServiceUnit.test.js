@@ -3,7 +3,10 @@ import { test } from "node:test";
 import mongoose from "mongoose";
 import Booking from "../src/models/Booking.js";
 import Flight from "../src/models/Flight.js";
-import { updateAdminFlight } from "../src/services/adminService.js";
+import {
+  updateAdminFlight,
+  updateAdminFlightSchedule,
+} from "../src/services/adminService.js";
 
 function populatedFlight(overrides = {}) {
   const departureAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -33,6 +36,8 @@ function populatedFlight(overrides = {}) {
     },
     departureAt,
     arrivalAt: new Date(departureAt.getTime() + 4 * 60 * 60 * 1000),
+    scheduledDepartureAt: departureAt,
+    scheduledArrivalAt: new Date(departureAt.getTime() + 4 * 60 * 60 * 1000),
     priceCents: 30000,
     totalSeats: 100,
     availableSeats: 80,
@@ -40,6 +45,11 @@ function populatedFlight(overrides = {}) {
     statusUpdatedAt: null,
     statusUpdatedBy: null,
     statusReason: null,
+    scheduleVersion: 0,
+    scheduleUpdatedAt: null,
+    scheduleUpdatedBy: null,
+    scheduleReason: null,
+    scheduleChanges: [],
     ...overrides,
   };
 }
@@ -151,6 +161,64 @@ test("admin flight cancellation updates bookings and normalizes inventory", asyn
     Flight.findOneAndUpdate = originalFindOneAndUpdate;
     Flight.updateOne = originalFlightUpdateOne;
     Booking.updateMany = originalBookingUpdateMany;
+  }
+});
+
+test("admin flight schedule update preserves the original schedule and records history", async () => {
+  const actorId = new mongoose.Types.ObjectId();
+  let stored = populatedFlight();
+  let findByIdCalls = 0;
+  const originalDepartureAt = stored.departureAt;
+  const originalArrivalAt = stored.arrivalAt;
+  const updatedDepartureAt = new Date(originalDepartureAt.getTime() + 2 * 60 * 60 * 1000);
+  const updatedArrivalAt = new Date(originalArrivalAt.getTime() + 2 * 60 * 60 * 1000);
+  const originalFindById = Flight.findById;
+  const originalFindOneAndUpdate = Flight.findOneAndUpdate;
+  const originalCountDocuments = Booking.countDocuments;
+
+  Flight.findById = () => {
+    findByIdCalls += 1;
+    return findByIdCalls === 1 ? Promise.resolve(stored) : populatedQuery(stored);
+  };
+  Flight.findOneAndUpdate = async (_filter, update) => {
+    stored = {
+      ...stored,
+      ...update.$set,
+      scheduleChanges: [...stored.scheduleChanges, update.$push.scheduleChanges],
+    };
+    return stored;
+  };
+  Booking.countDocuments = async () => 3;
+
+  try {
+    const result = await updateAdminFlightSchedule({
+      actorId,
+      flightId: stored._id,
+      departureAt: updatedDepartureAt,
+      arrivalAt: updatedArrivalAt,
+      expectedScheduleVersion: 0,
+      reason: "Operational delay",
+    });
+
+    assert.equal(result.changed, true);
+    assert.deepEqual(result.changedFields, ["departureAt", "arrivalAt", "status"]);
+    assert.equal(result.affectedBookings, 3);
+    assert.equal(result.flight.status, "DELAYED");
+    assert.equal(result.flight.scheduleVersion, 1);
+    assert.equal(result.flight.departureAt, updatedDepartureAt.toISOString());
+    assert.equal(
+      result.flight.scheduledDepartureAt,
+      originalDepartureAt.toISOString(),
+    );
+    assert.equal(result.flight.scheduleChanges.length, 1);
+    assert.equal(
+      result.flight.scheduleChanges[0].previousArrivalAt,
+      originalArrivalAt.toISOString(),
+    );
+  } finally {
+    Flight.findById = originalFindById;
+    Flight.findOneAndUpdate = originalFindOneAndUpdate;
+    Booking.countDocuments = originalCountDocuments;
   }
 });
 

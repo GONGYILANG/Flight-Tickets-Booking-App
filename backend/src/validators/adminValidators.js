@@ -11,6 +11,18 @@ const flightStatuses = new Set([
   "DEPARTED",
   "ARRIVED",
 ]);
+const adminFlightSortFields = new Set([
+  "departureAt",
+  "arrivalAt",
+  "availableSeats",
+  "price",
+  "createdAt",
+]);
+const airportCodePattern = /^[A-Z]{3}$/;
+const airlineCodePattern = /^[A-Z0-9]{2,3}$/;
+const flightNumberPattern = /^[A-Z0-9]{2,12}$/;
+const isoInstantPattern =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function invalidRequest(fields) {
   const error = new Error("One or more request fields are invalid");
@@ -124,6 +136,42 @@ function parseDate(value, field, fields) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     fields.push({ field, message: `${field} must be a valid ISO 8601 time` });
+    return undefined;
+  }
+  return parsed;
+}
+
+function parseOptionalCode(value, field, pattern, message, fields) {
+  if (value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    fields.push({ field, message });
+    return undefined;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  if (!pattern.test(normalized)) {
+    fields.push({ field, message });
+  }
+  return normalized;
+}
+
+function parseRequiredIsoInstant(value, field, fields) {
+  if (typeof value !== "string" || !isoInstantPattern.test(value.trim())) {
+    fields.push({
+      field,
+      message: `${field} must be an ISO 8601 time with Z or a UTC offset`,
+    });
+    return undefined;
+  }
+
+  const parsed = new Date(value.trim());
+  if (Number.isNaN(parsed.getTime())) {
+    fields.push({
+      field,
+      message: `${field} must be a valid ISO 8601 time`,
+    });
     return undefined;
   }
   return parsed;
@@ -298,8 +346,169 @@ export function validateAdminCancellation(request, _response, next) {
   }
 }
 
+export function validateAdminFlightList(request, _response, next) {
+  try {
+    const fields = [];
+    const flightNumber = parseOptionalCode(
+      request.query.flightNumber,
+      "flightNumber",
+      flightNumberPattern,
+      "flightNumber must contain 2 to 12 letters or digits",
+      fields,
+    );
+    const airlineCode = parseOptionalCode(
+      request.query.airlineCode,
+      "airlineCode",
+      airlineCodePattern,
+      "airlineCode must be a two- or three-character airline code",
+      fields,
+    );
+    const origin = parseOptionalCode(
+      request.query.origin,
+      "origin",
+      airportCodePattern,
+      "origin must be a three-letter IATA airport code",
+      fields,
+    );
+    const destination = parseOptionalCode(
+      request.query.destination,
+      "destination",
+      airportCodePattern,
+      "destination must be a three-letter IATA airport code",
+      fields,
+    );
+    const status = parseEnum(
+      request.query.status,
+      "status",
+      flightStatuses,
+      fields,
+    );
+    const departureFrom = parseDate(
+      request.query.departureFrom,
+      "departureFrom",
+      fields,
+    );
+    const departureTo = parseDate(
+      request.query.departureTo,
+      "departureTo",
+      fields,
+    );
+    const page = parsePagination(request.query.page, "page", 1, 10000, fields);
+    const limit = parsePagination(request.query.limit, "limit", 20, 50, fields);
+
+    const sortBy = request.query.sortBy ?? "departureAt";
+    if (typeof sortBy !== "string" || !adminFlightSortFields.has(sortBy)) {
+      fields.push({
+        field: "sortBy",
+        message:
+          "sortBy must be departureAt, arrivalAt, availableSeats, price, or createdAt",
+      });
+    }
+    const sortOrder = request.query.sortOrder ?? "asc";
+    if (
+      typeof sortOrder !== "string" ||
+      !["asc", "desc"].includes(sortOrder.toLowerCase())
+    ) {
+      fields.push({
+        field: "sortOrder",
+        message: "sortOrder must be asc or desc",
+      });
+    }
+
+    if (origin && destination && origin === destination) {
+      fields.push({
+        field: "destination",
+        message: "origin and destination must be different",
+      });
+    }
+    if (departureFrom && departureTo && departureFrom > departureTo) {
+      fields.push({
+        field: "departureTo",
+        message: "departureTo must not be earlier than departureFrom",
+      });
+    }
+    if (fields.length > 0) {
+      throw invalidRequest(fields);
+    }
+
+    request.validatedQuery = {
+      flightNumber,
+      airlineCode,
+      origin,
+      destination,
+      status,
+      departureFrom,
+      departureTo,
+      page,
+      limit,
+      sortBy,
+      sortOrder: sortOrder.toLowerCase(),
+    };
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
 export function validateAdminFlightId(request, _response, next) {
   return validatePathId(request, "flightId", next);
+}
+
+export function validateAdminFlightSchedule(request, _response, next) {
+  try {
+    const body = requestBody(request);
+    const fields = [];
+    rejectUnknownFields(
+      body,
+      new Set([
+        "departureAt",
+        "arrivalAt",
+        "reason",
+        "expectedScheduleVersion",
+      ]),
+      fields,
+    );
+
+    const departureAt = parseRequiredIsoInstant(
+      body.departureAt,
+      "departureAt",
+      fields,
+    );
+    const arrivalAt = parseRequiredIsoInstant(
+      body.arrivalAt,
+      "arrivalAt",
+      fields,
+    );
+    const expectedScheduleVersion = body.expectedScheduleVersion;
+    if (
+      !Number.isSafeInteger(expectedScheduleVersion) ||
+      expectedScheduleVersion < 0
+    ) {
+      fields.push({
+        field: "expectedScheduleVersion",
+        message: "expectedScheduleVersion must be a non-negative safe integer",
+      });
+    }
+    if (departureAt && arrivalAt && arrivalAt <= departureAt) {
+      fields.push({
+        field: "arrivalAt",
+        message: "arrivalAt must be later than departureAt",
+      });
+    }
+    if (fields.length > 0) {
+      throw invalidRequest(fields);
+    }
+
+    request.validatedBody = {
+      departureAt,
+      arrivalAt,
+      expectedScheduleVersion,
+      reason: parseReason(body.reason),
+    };
+    next();
+  } catch (error) {
+    next(error);
+  }
 }
 
 export function validateAdminFlightUpdate(request, _response, next) {

@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import Airline from "../models/Airline.js";
+import Airport from "../models/Airport.js";
 import Booking from "../models/Booking.js";
 import Flight from "../models/Flight.js";
 import User from "../models/User.js";
@@ -24,6 +26,15 @@ const flightPopulate = [
     select: "iataCode name cityName countryCode timezone",
   },
 ];
+const flightAuditPopulate = [
+  ...flightPopulate,
+  { path: "statusUpdatedBy", select: "email displayName status role" },
+  { path: "scheduleUpdatedBy", select: "email displayName status role" },
+  {
+    path: "scheduleChanges.changedBy",
+    select: "email displayName status role",
+  },
+];
 const bookingPopulate = [
   { path: "user", select: "email displayName status role" },
   { path: "cancelledBy", select: "email displayName status role" },
@@ -34,6 +45,16 @@ function serviceError(code, message, statusCode) {
   const error = new Error(message);
   error.code = code;
   error.statusCode = statusCode;
+  return error;
+}
+
+function invalidRequest(fields) {
+  const error = serviceError(
+    "INVALID_REQUEST",
+    "One or more request parameters are invalid",
+    400,
+  );
+  error.details = { fields };
   return error;
 }
 
@@ -78,6 +99,16 @@ function toAdminUserSummary(user) {
   };
 }
 
+function toAdminActorSummary(user) {
+  if (!user) {
+    return null;
+  }
+  if (user._id && user.email) {
+    return toAdminUserSummary(user);
+  }
+  return { id: (user._id ?? user).toString() };
+}
+
 export function toAdminUserResponse(user) {
   return {
     ...toAdminUserSummary(user),
@@ -100,13 +131,37 @@ function toAdminBookingResponse(booking) {
   };
 }
 
-function toAdminFlightResponse(flight) {
+function toScheduleChangeResponse(change) {
   return {
+    revision: change.revision,
+    previousDepartureAt: toIsoString(change.previousDepartureAt),
+    previousArrivalAt: toIsoString(change.previousArrivalAt),
+    departureAt: toIsoString(change.departureAt),
+    arrivalAt: toIsoString(change.arrivalAt),
+    changedAt: toIsoString(change.changedAt),
+    changedBy: toAdminActorSummary(change.changedBy),
+    reason: change.reason,
+  };
+}
+
+function toAdminFlightResponse(flight, { includeScheduleHistory = false } = {}) {
+  const response = {
     ...toFlightResponse(flight),
     priceCents: flight.priceCents,
     statusUpdatedAt: toIsoString(flight.statusUpdatedAt),
+    statusUpdatedBy: toAdminActorSummary(flight.statusUpdatedBy),
     statusReason: flight.statusReason ?? null,
+    scheduleVersion: flight.scheduleVersion ?? 0,
+    scheduleUpdatedAt: toIsoString(flight.scheduleUpdatedAt),
+    scheduleUpdatedBy: toAdminActorSummary(flight.scheduleUpdatedBy),
+    scheduleReason: flight.scheduleReason ?? null,
   };
+  if (includeScheduleHistory) {
+    response.scheduleChanges = (flight.scheduleChanges ?? []).map(
+      toScheduleChangeResponse,
+    );
+  }
+  return response;
 }
 
 async function loadAdminBooking(bookingId) {
@@ -121,12 +176,12 @@ async function loadAdminBooking(bookingId) {
 
 async function loadAdminFlight(flightId) {
   const flight = await Flight.findById(flightId)
-    .populate(flightPopulate)
+    .populate(flightAuditPopulate)
     .lean();
   if (!flight) {
     throw serviceError("FLIGHT_NOT_FOUND", "Flight was not found", 404);
   }
-  return toAdminFlightResponse(flight);
+  return toAdminFlightResponse(flight, { includeScheduleHistory: true });
 }
 
 function adminConsistencyError(operation, context = {}) {
@@ -315,6 +370,103 @@ export async function getAdminBooking(bookingId) {
   return loadAdminBooking(bookingId);
 }
 
+export async function listAdminFlights(criteria) {
+  const requestedAirportCodes = [criteria.origin, criteria.destination].filter(
+    Boolean,
+  );
+  const [airline, airports] = await Promise.all([
+    criteria.airlineCode
+      ? Airline.findOne({ code: criteria.airlineCode }).select("_id code").lean()
+      : Promise.resolve(null),
+    requestedAirportCodes.length > 0
+      ? Airport.find({ iataCode: { $in: requestedAirportCodes } })
+          .select("_id iataCode")
+          .lean()
+      : Promise.resolve([]),
+  ]);
+
+  const airportByCode = new Map(
+    airports.map((airport) => [airport.iataCode, airport]),
+  );
+  const invalidFields = [];
+  if (criteria.airlineCode && !airline) {
+    invalidFields.push({
+      field: "airlineCode",
+      message: "airlineCode must identify an existing airline",
+    });
+  }
+  if (criteria.origin && !airportByCode.has(criteria.origin)) {
+    invalidFields.push({
+      field: "origin",
+      message: "origin must identify an existing airport",
+    });
+  }
+  if (criteria.destination && !airportByCode.has(criteria.destination)) {
+    invalidFields.push({
+      field: "destination",
+      message: "destination must identify an existing airport",
+    });
+  }
+  if (invalidFields.length > 0) {
+    throw invalidRequest(invalidFields);
+  }
+
+  const filter = {};
+  if (criteria.flightNumber) {
+    filter.flightNumber = criteria.flightNumber;
+  }
+  if (airline) {
+    filter.airline = airline._id;
+  }
+  if (criteria.origin) {
+    filter.originAirport = airportByCode.get(criteria.origin)._id;
+  }
+  if (criteria.destination) {
+    filter.destinationAirport = airportByCode.get(criteria.destination)._id;
+  }
+  if (criteria.status) {
+    filter.status = criteria.status;
+  }
+  if (criteria.departureFrom || criteria.departureTo) {
+    filter.departureAt = {};
+    if (criteria.departureFrom) {
+      filter.departureAt.$gte = criteria.departureFrom;
+    }
+    if (criteria.departureTo) {
+      filter.departureAt.$lte = criteria.departureTo;
+    }
+  }
+
+  const direction = criteria.sortOrder === "asc" ? 1 : -1;
+  const sortField = criteria.sortBy === "price" ? "priceCents" : criteria.sortBy;
+  const sort = { [sortField]: direction, _id: direction };
+  const skip = (criteria.page - 1) * criteria.limit;
+  const [flights, totalItems] = await Promise.all([
+    Flight.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(criteria.limit)
+      .populate(flightPopulate)
+      .lean(),
+    Flight.countDocuments(filter),
+  ]);
+
+  return {
+    flights: flights.map((flight) => toAdminFlightResponse(flight)),
+    pagination: {
+      page: criteria.page,
+      limit: criteria.limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / criteria.limit),
+    },
+  };
+}
+
+export async function getAdminFlight(flightId) {
+  requireObjectId(flightId, "flightId");
+  return loadAdminFlight(flightId);
+}
+
 async function rollbackAdminCancellation(booking, cancelledAt) {
   try {
     const result = await Booking.updateOne(
@@ -495,6 +647,168 @@ async function cancelBookingsForFlight({ flight, actorId, reason }) {
   }
 
   return result.modifiedCount;
+}
+
+export async function updateAdminFlightSchedule({
+  actorId,
+  flightId,
+  departureAt,
+  arrivalAt,
+  expectedScheduleVersion,
+  reason,
+}) {
+  assertBookingWritesEnabled();
+  requireObjectId(actorId, "actorId");
+  requireObjectId(flightId, "flightId");
+
+  const current = await Flight.findById(flightId);
+  if (!current) {
+    throw serviceError("FLIGHT_NOT_FOUND", "Flight was not found", 404);
+  }
+  if (!bookableFlightStatuses.has(current.status)) {
+    throw serviceError(
+      "FLIGHT_SCHEDULE_NOT_EDITABLE",
+      "Only scheduled or delayed flights can have their schedule changed",
+      409,
+    );
+  }
+
+  const currentVersion = current.scheduleVersion ?? 0;
+  if (expectedScheduleVersion !== currentVersion) {
+    throw serviceError(
+      "FLIGHT_SCHEDULE_CONFLICT",
+      "The flight schedule changed concurrently; reload it and retry",
+      409,
+    );
+  }
+
+  const changedAt = new Date();
+  if (departureAt <= changedAt) {
+    throw serviceError(
+      "FLIGHT_SCHEDULE_IN_PAST",
+      "The updated departure time must be in the future",
+      409,
+    );
+  }
+  if (arrivalAt <= departureAt) {
+    throw serviceError(
+      "INVALID_FLIGHT_SCHEDULE",
+      "Arrival time must be later than departure time",
+      400,
+    );
+  }
+
+  const currentDepartureAt = new Date(current.departureAt);
+  const currentArrivalAt = new Date(current.arrivalAt);
+  if (
+    currentDepartureAt.getTime() === departureAt.getTime() &&
+    currentArrivalAt.getTime() === arrivalAt.getTime()
+  ) {
+    return {
+      flight: await loadAdminFlight(flightId),
+      changed: false,
+      changedFields: [],
+      affectedBookings: 0,
+    };
+  }
+
+  const scheduledDepartureAt = new Date(
+    current.scheduledDepartureAt ?? current.departureAt,
+  );
+  const scheduledArrivalAt = new Date(
+    current.scheduledArrivalAt ?? current.arrivalAt,
+  );
+  const nextVersion = currentVersion + 1;
+  const markDelayed =
+    current.status === "SCHEDULED" && departureAt > scheduledDepartureAt;
+  const changedFields = ["departureAt", "arrivalAt"];
+  const values = {
+    departureAt,
+    arrivalAt,
+    scheduledDepartureAt,
+    scheduledArrivalAt,
+    scheduleVersion: nextVersion,
+    scheduleUpdatedAt: changedAt,
+    scheduleUpdatedBy: actorId,
+    scheduleReason: reason,
+  };
+  if (markDelayed) {
+    changedFields.push("status");
+    Object.assign(values, {
+      status: "DELAYED",
+      statusUpdatedAt: changedAt,
+      statusUpdatedBy: actorId,
+      statusReason: reason,
+    });
+  }
+
+  const concurrencyFilter = {
+    _id: current._id,
+    status: current.status,
+    departureAt: current.departureAt,
+    arrivalAt: current.arrivalAt,
+  };
+  if (currentVersion === 0) {
+    concurrencyFilter.$or = [
+      { scheduleVersion: 0 },
+      { scheduleVersion: null },
+      { scheduleVersion: { $exists: false } },
+    ];
+  } else {
+    concurrencyFilter.scheduleVersion = currentVersion;
+  }
+
+  let updated;
+  try {
+    updated = await Flight.findOneAndUpdate(
+      concurrencyFilter,
+      {
+        $set: values,
+        $push: {
+          scheduleChanges: {
+            revision: nextVersion,
+            previousDepartureAt: currentDepartureAt,
+            previousArrivalAt: currentArrivalAt,
+            departureAt,
+            arrivalAt,
+            changedAt,
+            changedBy: actorId,
+            reason,
+          },
+        },
+      },
+      { returnDocument: "after", runValidators: true },
+    );
+  } catch (error) {
+    if (error?.code === 11000) {
+      throw serviceError(
+        "FLIGHT_SCHEDULE_CONFLICT",
+        "The requested time conflicts with another flight instance",
+        409,
+      );
+    }
+    throw adminConsistencyError("FLIGHT_SCHEDULE_UPDATE_RESULT_UNKNOWN", {
+      flightId: current._id,
+    });
+  }
+  if (!updated) {
+    throw serviceError(
+      "FLIGHT_SCHEDULE_CONFLICT",
+      "The flight schedule changed concurrently; reload it and retry",
+      409,
+    );
+  }
+
+  const affectedBookings = await Booking.countDocuments({
+    flight: flightId,
+    status: "CONFIRMED",
+  });
+  return {
+    flight: await loadAdminFlight(flightId),
+    changed: true,
+    changedFields,
+    affectedBookings,
+  };
 }
 
 export async function updateAdminFlight({ actorId, flightId, update }) {

@@ -630,3 +630,20 @@ export async function listBookingsForUser({ userId, page = 1, limit = 20 }) {
     },
   };
 }
+
+export async function getBookingForUser({ userId, bookingId }) {
+  requireObjectId(userId, "userId");
+  requireObjectId(bookingId, "bookingId");
+
+  const booking = await Booking.findOne({
+    _id: bookingId,
+    user: userId,
+  })
+    .populate({ path: "flight", populate: flightPopulate })
+    .lean();
+  if (!booking) {
+    throw serviceError("BOOKING_NOT_FOUND", "Booking was not found", 404);
+  }
+
+  return toBookingResponse(booking);
+}

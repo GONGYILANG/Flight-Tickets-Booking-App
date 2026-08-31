@@ -2,10 +2,13 @@ import { Router } from "express";
 import {
   cancelBooking,
   getBooking,
+  getFlight,
   getUser,
   listBookings,
+  listFlights,
   listUsers,
   updateFlight,
+  updateFlightSchedule,
   updateUserStatus,
 } from "../controllers/adminController.js";
 import { authenticate } from "../middleware/authenticate.js";
@@ -15,6 +18,8 @@ import {
   validateAdminBookingList,
   validateAdminCancellation,
   validateAdminFlightId,
+  validateAdminFlightList,
+  validateAdminFlightSchedule,
   validateAdminFlightUpdate,
   validateAdminUserId,
   validateAdminUserList,
@@ -43,6 +48,14 @@ router.patch(
   cancelBooking,
 );
 
+router.get("/flights", validateAdminFlightList, listFlights);
+router.get("/flights/:flightId", validateAdminFlightId, getFlight);
+router.patch(
+  "/flights/:flightId/schedule",
+  validateAdminFlightId,
+  validateAdminFlightSchedule,
+  updateFlightSchedule,
+);
 router.patch(
   "/flights/:flightId",
   validateAdminFlightId,

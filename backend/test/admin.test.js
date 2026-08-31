@@ -289,7 +289,7 @@ test("administrators can lock and restore users but cannot lock themselves", asy
     .set(authorization(adminToken))
     .send({ status: "DISABLED", reason: "Self disable" })
     .expect(409);
-  assert.equal(self.body.error.code, "ADMIN_SELF_STATUS_FORBIDDEN");
+  assert.equal(self.body.error.code, "ADMIN_STATUS_CHANGE_FORBIDDEN");
 
   const missingReason = await request(app)
     .patch(`/api/admin/users/${otherUser._id}/status`)
@@ -382,6 +382,86 @@ test("flight price updates preserve old snapshots and affect new bookings", asyn
     })
     .expect(201);
   assert.equal(created.body.data.booking.pricing.unitAmount, "455.55");
+});
+
+test("administrators can list, inspect, and reschedule every flight status", async () => {
+  const flight = await createFlight();
+  const booking = await Booking.create(
+    bookingData({ user: normalUser, flight, seatCount: 1 }),
+  );
+
+  const list = await request(app)
+    .get("/api/admin/flights")
+    .query({
+      flightNumber: flight.flightNumber,
+      airlineCode: airline.code,
+      origin: originAirport.iataCode,
+      destination: destinationAirport.iataCode,
+      status: "SCHEDULED",
+      sortBy: "departureAt",
+      sortOrder: "asc",
+    })
+    .set(authorization(adminToken))
+    .expect(200);
+  assert.equal(list.body.data.flights.length, 1);
+  assert.equal(list.body.data.flights[0].id, flight._id.toString());
+  assert.equal(list.body.data.flights[0].scheduleVersion, 0);
+
+  const originalDepartureAt = new Date(flight.departureAt);
+  const originalArrivalAt = new Date(flight.arrivalAt);
+  const newDepartureAt = new Date(
+    originalDepartureAt.getTime() + 2 * 60 * 60 * 1000,
+  );
+  const newArrivalAt = new Date(
+    originalArrivalAt.getTime() + 2 * 60 * 60 * 1000,
+  );
+  const changed = await request(app)
+    .patch(`/api/admin/flights/${flight._id}/schedule`)
+    .set(authorization(adminToken))
+    .send({
+      departureAt: newDepartureAt.toISOString(),
+      arrivalAt: newArrivalAt.toISOString(),
+      expectedScheduleVersion: 0,
+      reason: "Operational delay",
+    })
+    .expect(200);
+  assert.equal(changed.body.meta.changed, true);
+  assert.equal(changed.body.meta.affectedBookings, 1);
+  assert.deepEqual(changed.body.meta.changedFields, [
+    "departureAt",
+    "arrivalAt",
+    "status",
+  ]);
+  assert.equal(changed.body.data.flight.status, "DELAYED");
+  assert.equal(changed.body.data.flight.scheduleVersion, 1);
+  assert.equal(changed.body.data.flight.departureAt, newDepartureAt.toISOString());
+  assert.equal(
+    changed.body.data.flight.scheduledDepartureAt,
+    originalDepartureAt.toISOString(),
+  );
+
+  const stale = await request(app)
+    .patch(`/api/admin/flights/${flight._id}/schedule`)
+    .set(authorization(adminToken))
+    .send({
+      departureAt: new Date(newDepartureAt.getTime() + 60 * 60 * 1000).toISOString(),
+      arrivalAt: new Date(newArrivalAt.getTime() + 60 * 60 * 1000).toISOString(),
+      expectedScheduleVersion: 0,
+      reason: "Stale update",
+    })
+    .expect(409);
+  assert.equal(stale.body.error.code, "FLIGHT_SCHEDULE_CONFLICT");
+
+  const detail = await request(app)
+    .get(`/api/admin/flights/${flight._id}`)
+    .set(authorization(adminToken))
+    .expect(200);
+  assert.equal(detail.body.data.flight.scheduleChanges.length, 1);
+  assert.equal(
+    detail.body.data.flight.scheduleChanges[0].changedBy.id,
+    admin._id.toString(),
+  );
+  assert.equal((await Booking.findById(booking._id)).status, "CONFIRMED");
 });
 
 test("flight PATCH validates fields and enforces status transitions", async () => {

@@ -19,12 +19,27 @@ const missingCancellationFilter = {
     { cancellationSource: null },
   ],
 };
+const missingScheduleFilter = {
+  $or: [
+    { scheduledDepartureAt: { $exists: false } },
+    { scheduledDepartureAt: null },
+    { scheduledArrivalAt: { $exists: false } },
+    { scheduledArrivalAt: null },
+    { scheduleVersion: { $exists: false } },
+    { scheduleVersion: null },
+  ],
+};
 
 async function inspect() {
-  const [users, bookings] = await Promise.all([
+  const [users, bookings, flights] = await Promise.all([
     User.find(missingRoleFilter).select("email role").lean(),
     Booking.find(missingCancellationFilter)
       .select("user cancellationSource cancelledAt")
+      .lean(),
+    Flight.find(missingScheduleFilter)
+      .select(
+        "flightNumber departureAt arrivalAt scheduledDepartureAt scheduledArrivalAt scheduleVersion",
+      )
       .lean(),
   ]);
   return {
@@ -38,6 +53,15 @@ async function inspect() {
       userId: booking.user.toString(),
       cancelledAt: booking.cancelledAt?.toISOString?.() ?? null,
       currentCancellationSource: booking.cancellationSource ?? null,
+    })),
+    flights: flights.map((flight) => ({
+      flightId: flight._id.toString(),
+      flightNumber: flight.flightNumber,
+      departureAt: flight.departureAt,
+      arrivalAt: flight.arrivalAt,
+      scheduledDepartureAt: flight.scheduledDepartureAt ?? null,
+      scheduledArrivalAt: flight.scheduledArrivalAt ?? null,
+      scheduleVersion: flight.scheduleVersion ?? null,
     })),
   };
 }
@@ -58,8 +82,10 @@ async function migrateAdminData() {
         mode: applyChanges ? "APPLY" : "REPORT_ONLY",
         missingUserRoleCount: before.users.length,
         missingBookingCancellationCount: before.bookings.length,
+        missingFlightScheduleCount: before.flights.length,
         missingUserRoles: before.users,
         missingBookingCancellations: before.bookings,
+        missingFlightSchedules: before.flights,
       },
       null,
       2,
@@ -100,6 +126,25 @@ async function migrateAdminData() {
       { ordered: true },
     );
   }
+  if (before.flights.length > 0) {
+    await Flight.bulkWrite(
+      before.flights.map((flight) => ({
+        updateOne: {
+          filter: { _id: flight.flightId },
+          update: {
+            $set: {
+              scheduledDepartureAt:
+                flight.scheduledDepartureAt ?? flight.departureAt,
+              scheduledArrivalAt:
+                flight.scheduledArrivalAt ?? flight.arrivalAt,
+              scheduleVersion: flight.scheduleVersion ?? 0,
+            },
+          },
+        },
+      })),
+      { ordered: true },
+    );
+  }
 
   await Promise.all([
     User.createIndexes(),
@@ -108,9 +153,13 @@ async function migrateAdminData() {
   ]);
 
   const after = await inspect();
-  if (after.users.length > 0 || after.bookings.length > 0) {
+  if (
+    after.users.length > 0 ||
+    after.bookings.length > 0 ||
+    after.flights.length > 0
+  ) {
     throw new Error(
-      `Migration verification failed: ${after.users.length} users and ${after.bookings.length} bookings remain`,
+      `Migration verification failed: ${after.users.length} users, ${after.bookings.length} bookings, and ${after.flights.length} flights remain`,
     );
   }
   console.log("Administrator data migration completed and verified");

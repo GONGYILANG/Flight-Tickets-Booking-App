@@ -137,16 +137,29 @@ async function upsertFlights(airlines, airports) {
     const originAirport = airports.get(seed.origin);
     const destinationAirport = airports.get(seed.destination);
     const departureAt = new Date(seed.departureAt);
+    const arrivalAt = new Date(seed.arrivalAt);
 
     await Flight.updateOne(
       {
-        airline: airline._id,
-        flightNumber: seed.flightNumber,
-        departureAt,
+        $or: [
+          {
+            airline: airline._id,
+            flightNumber: seed.flightNumber,
+            scheduledDepartureAt: departureAt,
+          },
+          {
+            airline: airline._id,
+            flightNumber: seed.flightNumber,
+            scheduledDepartureAt: { $exists: false },
+            departureAt,
+          },
+        ],
       },
       {
         $set: {
           priceCents: seed.priceCents,
+          scheduledDepartureAt: departureAt,
+          scheduledArrivalAt: arrivalAt,
         },
         $setOnInsert: {
           airline: airline._id,
@@ -154,7 +167,7 @@ async function upsertFlights(airlines, airports) {
           originAirport: originAirport._id,
           destinationAirport: destinationAirport._id,
           departureAt,
-          arrivalAt: new Date(seed.arrivalAt),
+          arrivalAt,
           totalSeats: seed.totalSeats,
           availableSeats: seed.totalSeats,
           status: "SCHEDULED",

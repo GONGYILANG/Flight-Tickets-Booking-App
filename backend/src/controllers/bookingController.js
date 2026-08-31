@@ -1,6 +1,7 @@
 import {
   cancelBooking,
   createBooking,
+  getBookingForUser,
   listBookingsForUser,
 } from "../services/bookingService.js";
 
@@ -21,6 +22,14 @@ export async function listMine(request, response) {
     ...request.validatedQuery,
   });
   response.status(200).json({ data: result });
+}
+
+export async function getMine(request, response) {
+  const booking = await getBookingForUser({
+    userId: request.user._id,
+    bookingId: request.params.bookingId,
+  });
+  response.status(200).json({ data: { booking } });
 }
 
 export async function cancel(request, response) {

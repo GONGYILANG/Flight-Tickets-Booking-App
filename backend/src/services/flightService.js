@@ -64,6 +64,12 @@ export function formatUsdAmount(priceCents) {
 export function toFlightResponse(flight) {
   const departureAt = new Date(flight.departureAt);
   const arrivalAt = new Date(flight.arrivalAt);
+  const scheduledDepartureAt = new Date(
+    flight.scheduledDepartureAt ?? flight.departureAt,
+  );
+  const scheduledArrivalAt = new Date(
+    flight.scheduledArrivalAt ?? flight.arrivalAt,
+  );
 
   return {
     id: flight._id.toString(),
@@ -85,6 +91,11 @@ export function toFlightResponse(flight) {
     ]),
     departureAt: departureAt.toISOString(),
     arrivalAt: arrivalAt.toISOString(),
+    scheduledDepartureAt: scheduledDepartureAt.toISOString(),
+    scheduledArrivalAt: scheduledArrivalAt.toISOString(),
+    scheduleChanged:
+      departureAt.getTime() !== scheduledDepartureAt.getTime() ||
+      arrivalAt.getTime() !== scheduledArrivalAt.getTime(),
     durationMinutes: Math.round(
       (arrivalAt.getTime() - departureAt.getTime()) / 60000,
     ),
@@ -112,7 +123,11 @@ function toSearchMetadata(criteria, departureTimezone) {
   };
 }
 
-export function getDepartureWindow(criteria, timezone) {
+export function getDepartureWindow(
+  criteria,
+  timezone,
+  currentTime = new Date(),
+) {
   if (typeof timezone !== "string" || !IANAZone.isValidZone(timezone)) {
     throw serviceError(
       "INVALID_AIRPORT_TIMEZONE",
@@ -133,26 +148,41 @@ export function getDepartureWindow(criteria, timezone) {
     );
   }
 
+  const currentInstant = new Date(currentTime);
+  if (Number.isNaN(currentInstant.getTime())) {
+    throw serviceError(
+      "INVALID_CURRENT_TIME",
+      "Current time is invalid",
+      500,
+    );
+  }
+
+  const now = DateTime.fromJSDate(currentInstant, { zone: timezone });
   const localNoon = localDayStart.set({ hour: 12 });
   const localNextDayStart = localDayStart.plus({ days: 1 });
 
+  let requestedStart = localDayStart;
+  let requestedEnd = localNextDayStart;
+
   if (criteria.departurePeriod === "MORNING") {
+    requestedEnd = localNoon;
+  } else if (criteria.departurePeriod === "AFTERNOON") {
+    requestedStart = localNoon;
+  }
+
+  if (now.toMillis() >= requestedEnd.toMillis()) {
     return {
-      start: localDayStart.toUTC().toJSDate(),
-      end: localNoon.toUTC().toJSDate(),
+      start: currentInstant,
+      end: currentInstant,
     };
   }
 
-  if (criteria.departurePeriod === "AFTERNOON") {
-    return {
-      start: localNoon.toUTC().toJSDate(),
-      end: localNextDayStart.toUTC().toJSDate(),
-    };
-  }
+  const effectiveStart =
+    now.toMillis() > requestedStart.toMillis() ? now : requestedStart;
 
   return {
-    start: localDayStart.toUTC().toJSDate(),
-    end: localNextDayStart.toUTC().toJSDate(),
+    start: effectiveStart.toUTC().toJSDate(),
+    end: requestedEnd.toUTC().toJSDate(),
   };
 }
 
@@ -199,9 +229,11 @@ export async function searchFlights(criteria) {
     throw invalidRequest(invalidFields);
   }
 
+  const currentTime = new Date();
   const departureWindow = getDepartureWindow(
     criteria,
     originAirport.timezone,
+    currentTime,
   );
 
   const filter = {
@@ -209,6 +241,7 @@ export async function searchFlights(criteria) {
     destinationAirport: destinationAirport._id,
     departureAt: {
       $gte: departureWindow.start,
+      $gt: currentTime,
       $lt: departureWindow.end,
     },
     availableSeats: { $gte: criteria.passengers },
@@ -233,7 +266,7 @@ export async function searchFlights(criteria) {
       .lean(),
     Flight.countDocuments(filter),
   ]);
- 
+
   return {
     flights: matchingFlights.map(toFlightResponse),
     pagination: {

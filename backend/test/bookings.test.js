@@ -731,6 +731,31 @@ test("an unrecoverable cancellation failure is reported for reconciliation", asy
   );
 });
 
+test("booking detail is authenticated, owner-scoped, and returns only the DTO", async () => {
+  const response = await request(app)
+    .get(`/api/bookings/${primaryBookingId}`)
+    .set(authorization(firstToken))
+    .expect(200);
+  assert.equal(response.body.data.booking.id, primaryBookingId);
+  assert.ok(response.body.data.booking.flight);
+  const serialized = JSON.stringify(response.body);
+  assert.equal(serialized.includes("idempotencyKey"), false);
+  assert.equal(serialized.includes("priceSnapshot"), false);
+  assert.equal(serialized.includes(firstUser._id.toString()), false);
+
+  const hidden = await request(app)
+    .get(`/api/bookings/${primaryBookingId}`)
+    .set(authorization(secondToken))
+    .expect(404);
+  assert.equal(hidden.body.error.code, "BOOKING_NOT_FOUND");
+
+  const invalid = await request(app)
+    .get("/api/bookings/not-an-object-id")
+    .set(authorization(firstToken))
+    .expect(400);
+  assert.equal(invalid.body.error.code, "INVALID_REQUEST");
+});
+
 test("/me isolates users, uses stable pagination, and returns only the DTO", async () => {
   const tieCandidates = await Booking.find({ user: firstUser._id })
     .sort({ _id: -1 })
