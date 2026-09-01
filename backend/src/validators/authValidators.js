@@ -1,12 +1,6 @@
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { invalidRequest } from "../errors.js";
 
-function invalidRequest(fields) {
-  const error = new Error("One or more request fields are invalid");
-  error.code = "INVALID_REQUEST";
-  error.statusCode = 400;
-  error.details = { fields };
-  return error;
-}
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateEmail(value, fields) {
   if (typeof value !== "string") {
@@ -61,38 +55,30 @@ function requestBody(request) {
 }
 
 export function validateRegister(request, _response, next) {
-  try {
-    const body = requestBody(request);
-    const fields = [];
-    const email = validateEmail(body.email, fields);
-    const password = validatePassword(body.password, fields);
-    const displayName = validateDisplayName(body.displayName, fields);
+  const body = requestBody(request);
+  const fields = [];
+  const email = validateEmail(body.email, fields);
+  const password = validatePassword(body.password, fields);
+  const displayName = validateDisplayName(body.displayName, fields);
 
-    if (fields.length > 0) {
-      throw invalidRequest(fields);
-    }
-
-    request.validatedBody = { email, password, displayName };
-    next();
-  } catch (error) {
-    next(error);
+  if (fields.length > 0) {
+    throw invalidRequest(fields);
   }
+
+  request.validatedBody = { email, password, displayName };
+  next();
 }
 
 export function validateLogin(request, _response, next) {
-  try {
-    const body = requestBody(request);
-    const fields = [];
-    const email = validateEmail(body.email, fields);
-    const password = validatePassword(body.password, fields);
+  const body = requestBody(request);
+  const fields = [];
+  const email = validateEmail(body.email, fields);
+  const password = validatePassword(body.password, fields);
 
-    if (fields.length > 0) {
-      throw invalidRequest(fields);
-    }
-
-    request.validatedBody = { email, password };
-    next();
-  } catch (error) {
-    next(error);
+  if (fields.length > 0) {
+    throw invalidRequest(fields);
   }
+
+  request.validatedBody = { email, password };
+  next();
 }

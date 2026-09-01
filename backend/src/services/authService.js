@@ -1,14 +1,8 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { authConfig } from "../config/auth.js";
+import { serviceError } from "../errors.js";
 import User from "../models/User.js";
-
-function serviceError(code, message, statusCode) {
-  const error = new Error(message);
-  error.code = code;
-  error.statusCode = statusCode;
-  return error;
-}
 
 export function toSafeUser(user) {
   return {

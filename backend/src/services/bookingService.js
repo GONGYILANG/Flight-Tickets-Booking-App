@@ -1,31 +1,18 @@
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
+import { serviceError } from "../errors.js";
 import Booking from "../models/Booking.js";
 import Flight from "../models/Flight.js";
 import User from "../models/User.js";
-import { formatUsdAmount, toFlightResponse } from "./flightService.js";
+import {
+  bookableFlightStatuses,
+  flightPopulate,
+  formatUsdAmount,
+  toFlightResponse,
+} from "./flightService.js";
 
-const bookableStatuses = ["SCHEDULED", "DELAYED"];
 const idempotencyReadAttempts = 8;
 const bookingReferenceAttempts = 2;
-const flightPopulate = [
-  { path: "airline", select: "code name" },
-  {
-    path: "originAirport",
-    select: "iataCode name cityName countryCode timezone",
-  },
-  {
-    path: "destinationAirport",
-    select: "iataCode name cityName countryCode timezone",
-  },
-];
-
-function serviceError(code, message, statusCode) {
-  const error = new Error(message);
-  error.code = code;
-  error.statusCode = statusCode;
-  return error;
-}
 
 function requireObjectId(value, fieldName) {
   if (!mongoose.isObjectIdOrHexString(value)) {
@@ -282,7 +269,7 @@ async function tryCreateBooking(input, referenceAttempt) {
     flight = await Flight.findOneAndUpdate(
       {
         _id: input.flightId,
-        status: { $in: bookableStatuses },
+        status: { $in: bookableFlightStatuses },
         departureAt: { $gt: now },
         availableSeats: { $gte: input.seatCount },
       },
@@ -426,7 +413,7 @@ export async function createBooking(input) {
 function isBookableFlight(flight, now) {
   return (
     flight &&
-    bookableStatuses.includes(flight.status) &&
+    bookableFlightStatuses.includes(flight.status) &&
     new Date(flight.departureAt) > now
   );
 }
@@ -548,7 +535,7 @@ export async function cancelBooking({ userId, bookingId }) {
     restorationResult = await Flight.updateOne(
       {
         _id: flight._id,
-        status: { $in: bookableStatuses },
+        status: { $in: bookableFlightStatuses },
         departureAt: { $gt: cancelledAt },
         availableSeats: {
           $lte: flight.totalSeats - transitioned.seatCount,

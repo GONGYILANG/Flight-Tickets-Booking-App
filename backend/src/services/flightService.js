@@ -1,9 +1,11 @@
 import { DateTime, IANAZone } from "luxon";
+import { invalidRequest, serviceError } from "../errors.js";
 import Airline from "../models/Airline.js";
 import Airport from "../models/Airport.js";
 import Flight from "../models/Flight.js";
 
-const flightPopulate = [
+export const bookableFlightStatuses = ["SCHEDULED", "DELAYED"];
+export const flightPopulate = [
   { path: "airline", select: "code name" },
   {
     path: "originAirport",
@@ -14,23 +16,6 @@ const flightPopulate = [
     select: "iataCode name cityName countryCode timezone",
   },
 ];
-
-function serviceError(code, message, statusCode) {
-  const error = new Error(message);
-  error.code = code;
-  error.statusCode = statusCode;
-  return error;
-}
-
-function invalidRequest(fields) {
-  const error = serviceError(
-    "INVALID_REQUEST",
-    "One or more request parameters are invalid",
-    400,
-  );
-  error.details = { fields };
-  return error;
-}
 
 function safeReference(document, fields) {
   if (!document) {
@@ -226,7 +211,10 @@ export async function searchFlights(criteria) {
     });
   }
   if (invalidFields.length > 0) {
-    throw invalidRequest(invalidFields);
+    throw invalidRequest(
+      invalidFields,
+      "One or more request parameters are invalid",
+    );
   }
 
   const currentTime = new Date();
@@ -245,7 +233,7 @@ export async function searchFlights(criteria) {
       $lt: departureWindow.end,
     },
     availableSeats: { $gte: criteria.passengers },
-    status: { $in: ["SCHEDULED", "DELAYED"] },
+    status: { $in: bookableFlightStatuses },
   };
   if (airline) {
     filter.airline = airline._id;

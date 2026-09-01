@@ -1,15 +1,8 @@
 import mongoose from "mongoose";
+import { invalidRequest } from "../errors.js";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-function invalidRequest(fields) {
-  const error = new Error("One or more request fields are invalid");
-  error.code = "INVALID_REQUEST";
-  error.statusCode = 400;
-  error.details = { fields };
-  return error;
-}
 
 function requestBody(request) {
   if (
@@ -98,60 +91,52 @@ function parsePaginationInteger(
 }
 
 export function validateCreateBooking(request, _response, next) {
-  try {
-    const body = requestBody(request);
-    const fields = [];
-    const flightId = parseFlightId(body.flightId, fields);
-    const seatCount = parseSeatCount(body.seatCount, fields);
-    const source = parseSource(body.source, fields);
-    const idempotencyKey = parseIdempotencyKey(
-      body.idempotencyKey,
-      fields,
-    );
+  const body = requestBody(request);
+  const fields = [];
+  const flightId = parseFlightId(body.flightId, fields);
+  const seatCount = parseSeatCount(body.seatCount, fields);
+  const source = parseSource(body.source, fields);
+  const idempotencyKey = parseIdempotencyKey(
+    body.idempotencyKey,
+    fields,
+  );
 
-    if (fields.length > 0) {
-      throw invalidRequest(fields);
-    }
-
-    request.validatedBody = {
-      flightId,
-      seatCount,
-      source,
-      idempotencyKey,
-    };
-    next();
-  } catch (error) {
-    next(error);
+  if (fields.length > 0) {
+    throw invalidRequest(fields);
   }
+
+  request.validatedBody = {
+    flightId,
+    seatCount,
+    source,
+    idempotencyKey,
+  };
+  next();
 }
 
 export function validateListBookings(request, _response, next) {
-  try {
-    const fields = [];
-    const page = parsePaginationInteger(
-      request.query.page,
-      "page",
-      1,
-      10000,
-      fields,
-    );
-    const limit = parsePaginationInteger(
-      request.query.limit,
-      "limit",
-      20,
-      50,
-      fields,
-    );
+  const fields = [];
+  const page = parsePaginationInteger(
+    request.query.page,
+    "page",
+    1,
+    10000,
+    fields,
+  );
+  const limit = parsePaginationInteger(
+    request.query.limit,
+    "limit",
+    20,
+    50,
+    fields,
+  );
 
-    if (fields.length > 0) {
-      throw invalidRequest(fields);
-    }
-
-    request.validatedQuery = { page, limit };
-    next();
-  } catch (error) {
-    next(error);
+  if (fields.length > 0) {
+    throw invalidRequest(fields);
   }
+
+  request.validatedQuery = { page, limit };
+  next();
 }
 
 export function validateBookingId(request, _response, next) {

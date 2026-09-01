@@ -1,13 +1,7 @@
 import mongoose from "mongoose";
+import { serviceError } from "../errors.js";
 import User from "../models/User.js";
 import { verifyAccessToken } from "../services/authService.js";
-
-function authError(code, message, statusCode) {
-  const error = new Error(message);
-  error.code = code;
-  error.statusCode = statusCode;
-  return error;
-}
 
 export async function authenticate(request, _response, next) {
   try {
@@ -15,7 +9,7 @@ export async function authenticate(request, _response, next) {
     const match = authorization?.match(/^Bearer\s+(\S+)$/i);
 
     if (!match) {
-      throw authError(
+      throw serviceError(
         "AUTH_REQUIRED",
         "A Bearer access token is required",
         401,
@@ -24,17 +18,17 @@ export async function authenticate(request, _response, next) {
 
     const payload = verifyAccessToken(match[1]);
     if (!mongoose.isObjectIdOrHexString(payload.sub)) {
-      throw authError("INVALID_TOKEN", "Access token is invalid", 401);
+      throw serviceError("INVALID_TOKEN", "Access token is invalid", 401);
     }
 
     const user = await User.findById(payload.sub);
 
     if (!user) {
-      throw authError("INVALID_TOKEN", "Access token is invalid", 401);
+      throw serviceError("INVALID_TOKEN", "Access token is invalid", 401);
     }
 
     if (user.status !== "ACTIVE") {
-      throw authError(
+      throw serviceError(
         "ACCOUNT_NOT_ACTIVE",
         "This account is not active",
         403,

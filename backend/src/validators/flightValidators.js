@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { invalidRequest } from "../errors.js";
 
 const airportCodePattern = /^[A-Z]{3}$/;
 const airlineCodePattern = /^[A-Z0-9]{2,3}$/;
@@ -10,14 +11,6 @@ const allowedSortFields = new Set([
   "availableSeats",
   "price",
 ]);
-
-function invalidRequest(fields) {
-  const error = new Error("One or more request parameters are invalid");
-  error.code = "INVALID_REQUEST";
-  error.statusCode = 400;
-  error.details = { fields };
-  return error;
-}
 
 function parseAirportCode(value, field, fields) {
   if (typeof value !== "string") {
@@ -129,88 +122,90 @@ function parseInteger(value, field, defaultValue, minimum, maximum, fields) {
 }
 
 export function validateFlightSearch(request, _response, next) {
-  try {
-    const fields = [];
-    const origin = parseAirportCode(request.query.origin, "origin", fields);
-    const destination = parseAirportCode(
-      request.query.destination,
-      "destination",
-      fields,
-    );
-    const departureDate = parseDepartureDate(
-      request.query.departureDate,
-      fields,
-    );
-    const departurePeriod = parseDeparturePeriod(
-      request.query.departurePeriod,
-      fields,
-    );
-    const airlineCode = parseAirlineCode(request.query.airlineCode, fields);
-    const passengers = parseInteger(
-      request.query.passengers,
-      "passengers",
-      1,
-      1,
-      9,
-      fields,
-    );
-    const page = parseInteger(request.query.page, "page", 1, 1, 10000, fields);
-    const limit = parseInteger(request.query.limit, "limit", 20, 1, 50, fields);
+  const fields = [];
+  const origin = parseAirportCode(request.query.origin, "origin", fields);
+  const destination = parseAirportCode(
+    request.query.destination,
+    "destination",
+    fields,
+  );
+  const departureDate = parseDepartureDate(
+    request.query.departureDate,
+    fields,
+  );
+  const departurePeriod = parseDeparturePeriod(
+    request.query.departurePeriod,
+    fields,
+  );
+  const airlineCode = parseAirlineCode(request.query.airlineCode, fields);
+  const passengers = parseInteger(
+    request.query.passengers,
+    "passengers",
+    1,
+    1,
+    9,
+    fields,
+  );
+  const page = parseInteger(request.query.page, "page", 1, 1, 10000, fields);
+  const limit = parseInteger(request.query.limit, "limit", 20, 1, 50, fields);
 
-    const sortBy = request.query.sortBy ?? "departureAt";
-    if (typeof sortBy !== "string" || !allowedSortFields.has(sortBy)) {
-      fields.push({
-        field: "sortBy",
-        message:
-          "sortBy must be departureAt, arrivalAt, availableSeats, or price",
-      });
-    }
-
-    const sortOrder = request.query.sortOrder ?? "asc";
-    if (
-      typeof sortOrder !== "string" ||
-      !["asc", "desc"].includes(sortOrder.toLowerCase())
-    ) {
-      fields.push({
-        field: "sortOrder",
-        message: "sortOrder must be asc or desc",
-      });
-    }
-
-    if (origin && destination && origin === destination) {
-      fields.push({
-        field: "destination",
-        message: "origin and destination must be different",
-      });
-    }
-
-    if (fields.length > 0) {
-      throw invalidRequest(fields);
-    }
-
-    request.validatedQuery = {
-      origin,
-      destination,
-      departureDate,
-      departurePeriod,
-      airlineCode,
-      passengers,
-      page,
-      limit,
-      sortBy,
-      sortOrder: sortOrder.toLowerCase(),
-    };
-    next();
-  } catch (error) {
-    next(error);
+  const sortBy = request.query.sortBy ?? "departureAt";
+  if (typeof sortBy !== "string" || !allowedSortFields.has(sortBy)) {
+    fields.push({
+      field: "sortBy",
+      message:
+        "sortBy must be departureAt, arrivalAt, availableSeats, or price",
+    });
   }
+
+  const sortOrder = request.query.sortOrder ?? "asc";
+  if (
+    typeof sortOrder !== "string" ||
+    !["asc", "desc"].includes(sortOrder.toLowerCase())
+  ) {
+    fields.push({
+      field: "sortOrder",
+      message: "sortOrder must be asc or desc",
+    });
+  }
+
+  if (origin && destination && origin === destination) {
+    fields.push({
+      field: "destination",
+      message: "origin and destination must be different",
+    });
+  }
+
+  if (fields.length > 0) {
+    throw invalidRequest(
+      fields,
+      "One or more request parameters are invalid",
+    );
+  }
+
+  request.validatedQuery = {
+    origin,
+    destination,
+    departureDate,
+    departurePeriod,
+    airlineCode,
+    passengers,
+    page,
+    limit,
+    sortBy,
+    sortOrder: sortOrder.toLowerCase(),
+  };
+  next();
 }
 
 export function validateFlightId(request, _response, next) {
   if (!mongoose.isObjectIdOrHexString(request.params.flightId)) {
-    return next(invalidRequest([
-      { field: "flightId", message: "flightId must be a valid ObjectId" },
-    ]));
+    return next(
+      invalidRequest(
+        [{ field: "flightId", message: "flightId must be a valid ObjectId" }],
+        "One or more request parameters are invalid",
+      ),
+    );
   }
 
   return next();

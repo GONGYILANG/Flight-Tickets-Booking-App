@@ -5,7 +5,7 @@ import { connectDatabase, disconnectDatabase } from "../config/database.js";
 import Booking from "../models/Booking.js";
 import Flight from "../models/Flight.js";
 
-export const USD_CURRENCY = "USD";
+const USD_CURRENCY = "USD";
 
 export const KNOWN_FLIGHT_PRICES = Object.freeze([
   {
@@ -49,7 +49,7 @@ function normalizedDepartureAt(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-export function flightPriceKey(flightNumber, departureAt) {
+function flightPriceKey(flightNumber, departureAt) {
   const normalizedDate = normalizedDepartureAt(departureAt);
   if (!normalizedDate) {
     return null;

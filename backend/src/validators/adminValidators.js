@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { invalidRequest, serviceError } from "../errors.js";
 
 const userStatuses = new Set(["ACTIVE", "LOCKED", "DISABLED"]);
 const userRoles = new Set(["USER", "ADMIN"]);
@@ -24,29 +25,20 @@ const flightNumberPattern = /^[A-Z0-9]{2,12}$/;
 const isoInstantPattern =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-function invalidRequest(fields) {
-  const error = new Error("One or more request fields are invalid");
-  error.code = "INVALID_REQUEST";
-  error.statusCode = 400;
-  error.details = { fields };
-  return error;
-}
-
 function adminReasonRequired(field = "reason") {
-  const error = new Error(
+  return serviceError(
+    "ADMIN_REASON_REQUIRED",
     "An administrator reason containing 3 to 500 characters is required",
+    400,
+    {
+      fields: [
+        {
+          field,
+          message: "reason must contain from 3 to 500 characters",
+        },
+      ],
+    },
   );
-  error.code = "ADMIN_REASON_REQUIRED";
-  error.statusCode = 400;
-  error.details = {
-    fields: [
-      {
-        field,
-        message: "reason must contain from 3 to 500 characters",
-      },
-    ],
-  };
-  return error;
 }
 
 function requestBody(request) {
@@ -198,7 +190,6 @@ function validatePathId(request, parameterName, next) {
 }
 
 export function validateAdminUserList(request, _response, next) {
-  try {
     const fields = [];
     let query = null;
     if (request.query.q !== undefined) {
@@ -225,9 +216,6 @@ export function validateAdminUserList(request, _response, next) {
     }
     request.validatedQuery = { query, status, role, page, limit };
     next();
-  } catch (error) {
-    next(error);
-  }
 }
 
 export function validateAdminUserId(request, _response, next) {
@@ -235,7 +223,6 @@ export function validateAdminUserId(request, _response, next) {
 }
 
 export function validateAdminUserStatus(request, _response, next) {
-  try {
     const body = requestBody(request);
     const fields = [];
     rejectUnknownFields(body, new Set(["status", "reason"]), fields);
@@ -247,13 +234,9 @@ export function validateAdminUserStatus(request, _response, next) {
     }
     request.validatedBody = { status, reason: parseReason(body.reason) };
     next();
-  } catch (error) {
-    next(error);
-  }
 }
 
 export function validateAdminBookingList(request, _response, next) {
-  try {
     const fields = [];
     const userId = parseObjectId(request.query.userId, "userId", fields, {
       optional: true,
@@ -322,9 +305,6 @@ export function validateAdminBookingList(request, _response, next) {
       limit,
     };
     next();
-  } catch (error) {
-    next(error);
-  }
 }
 
 export function validateAdminBookingId(request, _response, next) {
@@ -332,7 +312,6 @@ export function validateAdminBookingId(request, _response, next) {
 }
 
 export function validateAdminCancellation(request, _response, next) {
-  try {
     const body = requestBody(request);
     const fields = [];
     rejectUnknownFields(body, new Set(["reason"]), fields);
@@ -341,13 +320,9 @@ export function validateAdminCancellation(request, _response, next) {
     }
     request.validatedBody = { reason: parseReason(body.reason) };
     next();
-  } catch (error) {
-    next(error);
-  }
 }
 
 export function validateAdminFlightList(request, _response, next) {
-  try {
     const fields = [];
     const flightNumber = parseOptionalCode(
       request.query.flightNumber,
@@ -445,9 +420,6 @@ export function validateAdminFlightList(request, _response, next) {
       sortOrder: sortOrder.toLowerCase(),
     };
     next();
-  } catch (error) {
-    next(error);
-  }
 }
 
 export function validateAdminFlightId(request, _response, next) {
@@ -455,7 +427,6 @@ export function validateAdminFlightId(request, _response, next) {
 }
 
 export function validateAdminFlightSchedule(request, _response, next) {
-  try {
     const body = requestBody(request);
     const fields = [];
     rejectUnknownFields(
@@ -506,13 +477,9 @@ export function validateAdminFlightSchedule(request, _response, next) {
       reason: parseReason(body.reason),
     };
     next();
-  } catch (error) {
-    next(error);
-  }
 }
 
 export function validateAdminFlightUpdate(request, _response, next) {
-  try {
     const body = requestBody(request);
     const fields = [];
     rejectUnknownFields(
@@ -558,7 +525,4 @@ export function validateAdminFlightUpdate(request, _response, next) {
       reason: hasStatus ? parseReason(body.reason) : null,
     };
     next();
-  } catch (error) {
-    next(error);
-  }
 }

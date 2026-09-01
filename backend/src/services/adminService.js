@@ -1,13 +1,17 @@
 import mongoose from "mongoose";
+import { invalidRequest, serviceError } from "../errors.js";
 import Airline from "../models/Airline.js";
 import Airport from "../models/Airport.js";
 import Booking from "../models/Booking.js";
 import Flight from "../models/Flight.js";
 import User from "../models/User.js";
 import { toBookingResponse } from "./bookingService.js";
-import { toFlightResponse } from "./flightService.js";
+import {
+  bookableFlightStatuses,
+  flightPopulate,
+  toFlightResponse,
+} from "./flightService.js";
 
-const bookableFlightStatuses = new Set(["SCHEDULED", "DELAYED"]);
 const allowedStatusTransitions = new Map([
   ["SCHEDULED", new Set(["DELAYED", "CANCELLED", "DEPARTED"])],
   ["DELAYED", new Set(["SCHEDULED", "CANCELLED", "DEPARTED"])],
@@ -15,17 +19,6 @@ const allowedStatusTransitions = new Map([
   ["CANCELLED", new Set()],
   ["ARRIVED", new Set()],
 ]);
-const flightPopulate = [
-  { path: "airline", select: "code name" },
-  {
-    path: "originAirport",
-    select: "iataCode name cityName countryCode timezone",
-  },
-  {
-    path: "destinationAirport",
-    select: "iataCode name cityName countryCode timezone",
-  },
-];
 const flightAuditPopulate = [
   ...flightPopulate,
   { path: "statusUpdatedBy", select: "email displayName status role" },
@@ -40,23 +33,6 @@ const bookingPopulate = [
   { path: "cancelledBy", select: "email displayName status role" },
   { path: "flight", populate: flightPopulate },
 ];
-
-function serviceError(code, message, statusCode) {
-  const error = new Error(message);
-  error.code = code;
-  error.statusCode = statusCode;
-  return error;
-}
-
-function invalidRequest(fields) {
-  const error = serviceError(
-    "INVALID_REQUEST",
-    "One or more request parameters are invalid",
-    400,
-  );
-  error.details = { fields };
-  return error;
-}
 
 function requireObjectId(value, fieldName) {
   if (!mongoose.isObjectIdOrHexString(value)) {
@@ -109,7 +85,7 @@ function toAdminActorSummary(user) {
   return { id: (user._id ?? user).toString() };
 }
 
-export function toAdminUserResponse(user) {
+function toAdminUserResponse(user) {
   return {
     ...toAdminUserSummary(user),
     createdAt: toIsoString(user.createdAt),
@@ -408,7 +384,10 @@ export async function listAdminFlights(criteria) {
     });
   }
   if (invalidFields.length > 0) {
-    throw invalidRequest(invalidFields);
+    throw invalidRequest(
+      invalidFields,
+      "One or more request parameters are invalid",
+    );
   }
 
   const filter = {};
@@ -511,7 +490,7 @@ export async function cancelAdminBooking({ actorId, bookingId, reason }) {
   );
   if (
     !flight ||
-    !bookableFlightStatuses.has(flight.status) ||
+    !bookableFlightStatuses.includes(flight.status) ||
     new Date(flight.departureAt) <= now
   ) {
     throw serviceError(
@@ -563,7 +542,7 @@ export async function cancelAdminBooking({ actorId, bookingId, reason }) {
     restoration = await Flight.updateOne(
       {
         _id: flight._id,
-        status: { $in: [...bookableFlightStatuses] },
+        status: { $in: bookableFlightStatuses },
         departureAt: { $gt: now },
         availableSeats: { $lte: flight.totalSeats - transitioned.seatCount },
       },
@@ -665,7 +644,7 @@ export async function updateAdminFlightSchedule({
   if (!current) {
     throw serviceError("FLIGHT_NOT_FOUND", "Flight was not found", 404);
   }
-  if (!bookableFlightStatuses.has(current.status)) {
+  if (!bookableFlightStatuses.includes(current.status)) {
     throw serviceError(
       "FLIGHT_SCHEDULE_NOT_EDITABLE",
       "Only scheduled or delayed flights can have their schedule changed",
@@ -821,7 +800,10 @@ export async function updateAdminFlight({ actorId, flightId, update }) {
     throw serviceError("FLIGHT_NOT_FOUND", "Flight was not found", 404);
   }
 
-  if (update.hasPriceCents && !bookableFlightStatuses.has(current.status)) {
+  if (
+    update.hasPriceCents &&
+    !bookableFlightStatuses.includes(current.status)
+  ) {
     throw serviceError(
       "FLIGHT_PRICE_NOT_EDITABLE",
       "Only scheduled or delayed flights can have their price changed",

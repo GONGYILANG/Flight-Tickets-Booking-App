@@ -1,6 +1,5 @@
 import express from "express";
 import { errorHandler } from "./middleware/errorHandler.js";
-import { notFoundHandler } from "./middleware/notFoundHandler.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import airportRoutes from "./routes/airportRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
@@ -20,7 +19,14 @@ app.use("/api/airports", airportRoutes);
 app.use("/api/flights", flightRoutes);
 app.use("/api/bookings", bookingRoutes);
 
-app.use(notFoundHandler);
+app.use((request, response) => {
+  response.status(404).json({
+    error: {
+      code: "ROUTE_NOT_FOUND",
+      message: `Route not found: ${request.method} ${request.originalUrl}`,
+    },
+  });
+});
 app.use(errorHandler);
 
 export default app;
