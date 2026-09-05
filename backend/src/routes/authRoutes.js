@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authenticate } from "../middleware/authenticate.js";
 import {
   loginUser,
+  logoutUser,
   registerUser,
   toSafeUser,
 } from "../services/authService.js";
@@ -20,6 +21,10 @@ router.post("/login", validateLogin, async (request, response) => {
 });
 router.get("/me", authenticate, (request, response) => {
   response.json({ data: { user: toSafeUser(request.user) } });
+});
+router.post("/logout", authenticate, async (request, response) => {
+  await logoutUser(request.user, request.accessToken);
+  response.sendStatus(204);
 });
 
 export default router;

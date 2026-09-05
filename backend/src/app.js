@@ -2,6 +2,7 @@ import express from "express";
 import { errorHandler } from "./middleware/errorHandler.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import airportRoutes from "./routes/airportRoutes.js";
+import airlineRoutes from "./routes/airlineRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
 import flightRoutes from "./routes/flightRoutes.js";
@@ -16,6 +17,7 @@ app.use("/api/health", healthRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/airports", airportRoutes);
+app.use("/api/airlines", airlineRoutes);
 app.use("/api/flights", flightRoutes);
 app.use("/api/bookings", bookingRoutes);
 

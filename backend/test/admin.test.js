@@ -51,14 +51,17 @@ let otherUser;
 let adminToken;
 let normalToken;
 
-function tokenFor(subject) {
-  return jwt.sign({ type: "access" }, process.env.JWT_SECRET, {
+async function tokenFor(subject) {
+  const token = jwt.sign({ type: "access" }, process.env.JWT_SECRET, {
     algorithm: "HS256",
     subject: subject.toString(),
     issuer: "flight-booking-api",
     audience: "flight-booking-android",
-    expiresIn: "2h",
+    expiresIn: "24h",
+    jwtid: randomUUID(),
   });
+  await User.updateOne({ _id: subject }, { $push: { tokens: token } });
+  return token;
 }
 
 function authorization(token) {
@@ -175,8 +178,8 @@ before(async () => {
     createUser("normal-user"),
     createUser("other-user"),
   ]);
-  adminToken = tokenFor(admin._id);
-  normalToken = tokenFor(normalUser._id);
+  adminToken = await tokenFor(admin._id);
+  normalToken = await tokenFor(normalUser._id);
 });
 
 after(async () => {
@@ -247,6 +250,7 @@ test("administrators can search users and inspect booking summaries safely", asy
   assert.equal(list.body.data.users[0].id, normalUser._id.toString());
   assert.equal(list.body.data.users[0].role, "USER");
   assert.equal(JSON.stringify(list.body).includes("passwordHash"), false);
+  assert.equal(JSON.stringify(list.body).includes("tokens"), false);
 
   const detail = await request(app)
     .get(`/api/admin/users/${normalUser._id}`)
@@ -254,6 +258,7 @@ test("administrators can search users and inspect booking summaries safely", asy
     .expect(200);
   assert.ok(detail.body.data.bookingSummary.total >= 1);
   assert.ok(detail.body.data.bookingSummary.confirmed >= 1);
+  assert.equal(JSON.stringify(detail.body).includes("tokens"), false);
 });
 
 test("administrators can lock and restore users but cannot lock themselves", async () => {
@@ -373,7 +378,7 @@ test("flight price updates preserve old snapshots and affect new bookings", asyn
 
   const created = await request(app)
     .post("/api/bookings")
-    .set(authorization(tokenFor(otherUser._id)))
+    .set(authorization(await tokenFor(otherUser._id)))
     .send({
       flightId: flight._id.toString(),
       seatCount: 1,
@@ -540,7 +545,7 @@ test("cancelling a flight cancels confirmed bookings and is idempotent", async (
 
   const myBookings = await request(app)
     .get("/api/bookings/me")
-    .set(authorization(tokenFor(normalUser._id)))
+    .set(authorization(await tokenFor(normalUser._id)))
     .expect(200);
   const visible = myBookings.body.data.bookings.find(
     ({ id }) => id === bookings[0]._id.toString(),

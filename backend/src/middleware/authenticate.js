@@ -21,10 +21,14 @@ export async function authenticate(request, _response, next) {
       throw serviceError("INVALID_TOKEN", "Access token is invalid", 401);
     }
 
-    const user = await User.findById(payload.sub);
+    const user = await User.findById(payload.sub).select("+tokens");
 
     if (!user) {
       throw serviceError("INVALID_TOKEN", "Access token is invalid", 401);
+    }
+
+    if (!user.tokens.includes(match[1])) {
+      throw serviceError("TOKEN_REVOKED", "Access token has been revoked", 401);
     }
 
     if (user.status !== "ACTIVE") {
@@ -36,6 +40,7 @@ export async function authenticate(request, _response, next) {
     }
 
     request.user = user;
+    request.accessToken = match[1];
     next();
   } catch (error) {
     next(error);

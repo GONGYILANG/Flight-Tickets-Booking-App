@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import "dotenv/config";
 import request from "supertest";
+import Airline from "../src/models/Airline.js";
 
 process.env.NODE_ENV = "test";
 
@@ -18,6 +19,16 @@ before(async () => {
 
 after(async () => {
   await disconnectDatabase();
+});
+
+test("airline options return every active airline as public code/name pairs", async () => {
+  const expected = await Airline.find({ active: true }).select("code name -_id").lean();
+  expected.sort((a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code));
+  const response = await request(app).get("/api/airlines").expect(200);
+  assert.deepEqual(response.body.data.airlines, expected);
+  for (const airline of response.body.data.airlines) {
+    assert.deepEqual(Object.keys(airline).sort(), ["code", "name"]);
+  }
 });
 
 test("airport search validates q and limit", async () => {

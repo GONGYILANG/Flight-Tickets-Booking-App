@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { authConfig } from "../config/auth.js";
 import { serviceError } from "../errors.js";
@@ -24,14 +25,33 @@ function issueAccessToken(user) {
       issuer: authConfig.jwtIssuer,
       audience: authConfig.jwtAudience,
       expiresIn: authConfig.jwtExpiresIn,
+      jwtid: randomUUID(),
     },
   );
 }
 
-function authResult(user) {
+async function authResult(user) {
+  const accessToken = issueAccessToken(user);
+  // prune expired strings on login; use a session collection if history grows large.
+  const expiredTokens = (user.tokens ?? []).filter(
+    (token) => !(jwt.decode(token)?.exp > Date.now() / 1000),
+  );
+  if (expiredTokens.length) {
+    await User.updateOne(
+      { _id: user._id },
+      { $pull: { tokens: { $in: expiredTokens } } },
+    );
+  }
+  const result = await User.updateOne(
+    { _id: user._id, status: "ACTIVE" },
+    { $push: { tokens: accessToken } },
+  );
+  if (!result.matchedCount) {
+    throw serviceError("ACCOUNT_NOT_ACTIVE", "This account is not active", 403);
+  }
   return {
     user: toSafeUser(user),
-    accessToken: issueAccessToken(user),
+    accessToken: accessToken,
     tokenType: "Bearer",
     expiresIn: authConfig.jwtExpiresIn,
   };
@@ -65,7 +85,7 @@ export async function registerUser({ email, password, displayName }) {
 }
 
 export async function loginUser({ email, password }) {
-  const user = await User.findOne({ email }).select("+passwordHash");
+  const user = await User.findOne({ email }).select("+passwordHash +tokens");
   const passwordMatches = user
     ? await bcrypt.compare(password, user.passwordHash)
     : false;
@@ -100,7 +120,8 @@ export function verifyAccessToken(token) {
     if (
       typeof payload !== "object" ||
       payload.type !== "access" ||
-      typeof payload.sub !== "string"
+      typeof payload.sub !== "string" ||
+      !Number.isInteger(payload.exp)
     ) {
       throw serviceError("INVALID_TOKEN", "Access token is invalid", 401);
     }
@@ -115,4 +136,8 @@ export function verifyAccessToken(token) {
     }
     throw serviceError("INVALID_TOKEN", "Access token is invalid", 401);
   }
+}
+
+export async function logoutUser(user, accessToken) {
+  await User.updateOne({ _id: user._id }, { $pull: { tokens: accessToken } });
 }

@@ -76,7 +76,8 @@ function accessTokenFor(subject) {
       subject: subject.toString(),
       issuer: "flight-booking-api",
       audience: "flight-booking-android",
-      expiresIn: "2h",
+      expiresIn: "24h",
+      jwtid: randomUUID(),
     },
   );
 }
@@ -199,6 +200,8 @@ before(async () => {
   ]);
   firstToken = accessTokenFor(firstUser._id);
   secondToken = accessTokenFor(secondUser._id);
+  await User.updateOne({ _id: firstUser._id }, { $push: { tokens: firstToken } });
+  await User.updateOne({ _id: secondUser._id }, { $push: { tokens: secondToken } });
   primaryFlight = await createFlight({ totalSeats: 10 });
 });
 

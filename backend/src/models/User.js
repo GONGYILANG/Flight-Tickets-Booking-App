@@ -16,6 +16,11 @@ const userSchema = new mongoose.Schema(
       required: true,
       select: false,
     },
+    tokens: {
+      type: [String],
+      default: [],
+      select: false,
+    },
     displayName: {
       type: String,
       required: true,
