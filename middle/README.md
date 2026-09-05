@@ -48,6 +48,7 @@ python resolution.py
 ```http
 POST /api/chat
 Content-Type: application/json
+Authorization: Bearer <accessToken>
 
 {
   "message": "帮我找 2026-12-08 上午从北京到香港的两张最便宜机票"
@@ -61,9 +62,21 @@ Content-Type: application/json
   "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
   "requestId": "a3bbb0e4-3750-49af-b539-4b5ac85c331e",
   "message": "……",
-  "replayed": false
+  "replayed": false,
+  "events": [
+    {
+      "tool": "search_flights",
+      "result": {
+        "ok": true,
+        "status": 200,
+        "data": { "flights": [] }
+      }
+    }
+  ]
 }
 ```
+
+`events` 按调用顺序包含安全的公开工具结果，供前端渲染机场、航班和订单卡片；不会包含 JWT、模型推理或工具调用 ID。旧客户端可忽略该附加字段。
 
 后续消息必须复用 `sessionId`，这样模型才能理解“订第一个”等上下文：
 
@@ -75,7 +88,7 @@ Content-Type: application/json
 }
 ```
 
-登录后的预订、订单查询和取消请求还要把后端登录接口返回的 JWT 交给中间层：
+所有聊天和删除会话请求都要把后端登录接口返回的 JWT 交给中间层：
 
 ```http
 Authorization: Bearer <accessToken>
@@ -90,6 +103,7 @@ Token 只由 Python 代码转发给 Node.js 后端，不会进入 DeepSeek 的 `
 - 同一个 `sessionId + requestId` 再次提交相同消息时直接返回缓存响应；同一 ID 配不同消息返回 `409 REQUEST_ID_CONFLICT`。
 - 会话默认保留 1 小时。当前存储在单个 Python 进程内，因此请使用一个 Uvicorn worker。多实例部署时应把会话和响应缓存迁移到 Redis 等共享存储。
 - `DELETE /api/chat/{sessionId}` 可清除会话。
+- 每次 HTTP 请求（包括缓存重放和清除会话）先用 `GET /api/auth/me` 验证 JWT；被撤销、过期或停用的凭证无法读取缓存。会话和删除操作按已验证的用户 ID 隔离。
 
 ## 安全边界
 
@@ -97,8 +111,8 @@ Token 只由 Python 代码转发给 Node.js 后端，不会进入 DeepSeek 的 `
 
 ## 测试
 
-核心测试只使用 Python 标准库：
+激活已安装 `requirements.txt` 的虚拟环境后运行：
 
 ```powershell
-python -m unittest discover -s tests -v
+.venv\Scripts\python -m unittest discover -s tests -v
 ```

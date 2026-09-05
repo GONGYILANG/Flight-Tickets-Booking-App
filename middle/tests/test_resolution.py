@@ -254,6 +254,18 @@ class FakeCompletions:
 
 
 class AssistantLoopTests(unittest.TestCase):
+    def test_default_model_matches_environment_bootstrap_and_allows_override(self) -> None:
+        direct = resolution.FlightBookingAssistant(deepseek_client=None, tool_executor=None)
+        self.assertEqual(direct.model, "deepseek-v4-flash")
+        for model in (None, "custom-model"):
+            env = {"DEEPSEEK_API_KEY": "test-key"}
+            if model is not None:
+                env["DEEPSEEK_MODEL"] = model
+            with patch.dict(resolution.os.environ, env, clear=True), \
+                 patch("dotenv.load_dotenv"), patch.object(resolution, "OpenAI"):
+                assistant = resolution.build_assistant_from_env()
+                self.assertEqual(assistant.model, model or direct.model)
+
     def test_tool_result_is_replayed_and_token_is_not_sent_to_model(self) -> None:
         tool_call = SimpleNamespace(
             id="call_airport_1",
@@ -284,12 +296,14 @@ class AssistantLoopTests(unittest.TestCase):
         history = assistant.new_history(
             datetime(2026, 8, 24, tzinfo=timezone.utc)
         )
+        events: list[dict] = []
 
         reply = assistant.respond(
             history,
             "北京飞香港",
             access_token="must-not-reach-deepseek",
             request_id=str(uuid.uuid4()),
+            event_sink=events,
         )
 
         self.assertEqual(reply, "北京有两个机场，请选择 PEK 或 PKX。")
@@ -302,6 +316,9 @@ class AssistantLoopTests(unittest.TestCase):
         self.assertNotIn("must-not-reach-deepseek", json.dumps(second_messages, default=str))
         self.assertIs(second_messages[2], tool_message)
         self.assertEqual(backend.calls, [("search_airports", "Beijing", 5)])
+        self.assertEqual(events[0]["tool"], "search_airports")
+        self.assertEqual(events[0]["result"]["data"]["airports"], [{"iataCode": "PEK"}])
+        self.assertNotIn("must-not-reach-deepseek", json.dumps(events))
 
 
 if __name__ == "__main__":

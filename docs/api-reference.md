@@ -1,6 +1,6 @@
  # Flight Booking Backend API Reference
 
-本文件描述当前 `backend/src` 实现的 HTTP API，供 Android 客户端、Thunder Client 测试，以及未来的 AI 工具调用使用。
+本文件描述当前 `backend/src` 实现的 HTTP API，供 Vue 前端、Android 客户端、Thunder Client 测试和 AI 中间层使用。
 
 默认本地服务地址：
 
@@ -21,8 +21,10 @@ Content-Type: application/json
 | 健康检查 | `GET` | `/api/health` | 否 |
 | 认证 | `POST` | `/api/auth/register` | 否 |
 | 认证 | `POST` | `/api/auth/login` | 否 |
+| 认证 | `POST` | `/api/auth/logout` | 是 |
 | 认证 | `GET` | `/api/auth/me` | 是 |
 | 机场 | `GET` | `/api/airports/search` | 否 |
+| 航空公司 | `GET` | `/api/airlines` | 否 |
 | 航班 | `GET` | `/api/flights/search` | 否 |
 | 航班 | `GET` | `/api/flights/:flightId` | 否 |
 | 订单 | `POST` | `/api/bookings` | 是 |
@@ -50,7 +52,13 @@ Content-Type: application/json
 Authorization: Bearer <accessToken>
 ```
 
-`accessToken` 由注册或登录接口返回。缺少、过期或无效的 Token 会返回 `401`；被停用或锁定的用户会返回 `403`。
+`accessToken` 由注册或登录接口返回，有效期默认为 **24 小时**（`JWT_EXPIRES_IN=24h`），不会因勾选 Remember me 而延长。缺少、过期、撤销或无效的 Token 会返回 `401`；被停用或锁定的用户会返回 `403`。
+
+注册或登录成功前，服务端将返回给客户端的原始 JWT 字符串直接写入 `users.tokens` 数组，不做摘要。数组元素不含 `Bearer ` 前缀，例如 `tokens: ["<JWT from device A>", "<JWT from device B>"]`。每次签发都包含独立的随机 `jti`，因此同一用户同时登录也会获得不同 Token。
+
+受保护请求必须同时通过 JWT 签名/有效期校验、Token 仍存在于该用户 `tokens` 数组的检查，以及用户 `ACTIVE` 状态检查。即使 Token 仍在数据库，超过其 `exp` 时间后也返回 `401 TOKEN_EXPIRED`。过期记录在下一次成功登录时清理；`tokens` 默认不查询、不出现在公开 User 或管理员响应中。
+
+旧的 `tokenVersion` 不再参与认证。升级前签发、尚未存入 `tokens` 的 Token 不再被接受，需要重新登录；旧用户的 `tokens` 缺失时按空数组处理。
 
 ### 时间与时区
 
@@ -270,7 +278,7 @@ Authorization: Bearer <accessToken>
     },
     "accessToken": "<JWT>",
     "tokenType": "Bearer",
-    "expiresIn": "2h"
+    "expiresIn": "24h"
   }
 }
 ```
@@ -302,6 +310,16 @@ Authorization: Bearer <accessToken>
 - `400 INVALID_REQUEST`：字段缺失或格式不正确。
 - `401 INVALID_CREDENTIALS`：邮箱不存在或密码错误。
 - `403 ACCOUNT_NOT_ACTIVE`：用户不是 `ACTIVE` 状态。
+
+### `POST /api/auth/logout`
+
+认证：需要 Bearer Token。无需请求体，成功返回 `204 No Content`。
+
+服务端通过 `$pull` 从当前用户的 `tokens` 数组中原子删除请求携带的**当前 Token**，其他设备的 Token 继续有效。之后使用该 Token 访问 `/api/auth/me`、订单或管理员接口时返回 `401 TOKEN_REVOKED`。注销后的重复请求同样返回 `401`，客户端应视为已经退出。
+
+前端在成功或认证失效后清除本地 Token、待确认预订和聊天记录。网络错误或 `5xx` 不应被当作服务端注销成功，应保留可重试状态。
+
+登录追加 Token、注销删除 Token 都使用数据库原子数组操作，避免并发登录或注销时覆盖其他会话。当前没有自动续期：满 24 小时后重新登录会生成并保存新的 Token。
 
 ### `GET /api/auth/me`
 
@@ -372,6 +390,25 @@ GET /api/airports/search?q=beijing&limit=10
 ```
 
 结果会优先排列完全匹配的 IATA 代码、IATA 前缀、城市完全匹配、城市前缀和机场名前缀。参数不合法时返回 `400 INVALID_REQUEST`。
+
+## 航空公司 API
+
+### `GET /api/airlines`
+
+无需认证和查询参数。返回所有 `active=true` 的航空公司，仅包含公开的 `code`、`name`，按名称及代码稳定排列：
+
+```json
+{
+  "data": {
+    "airlines": [
+      { "code": "CA", "name": "Air China" },
+      { "code": "CX", "name": "Cathay Pacific" }
+    ]
+  }
+}
+```
+
+筛选抽屉使用此接口，不再从某一页航班推导航空公司选项。该列表是启用中的航空公司目录，不保证每家公司在当前路线、日期都有航班；实际结果仍由航班搜索确定。
 
 ## 航班 API
 
@@ -577,7 +614,7 @@ GET /api/flights/66a1b2c3d4e5f67890123456
 常见错误：
 
 - `400 INVALID_REQUEST`：请求体或字段不合法。
-- `401 AUTH_REQUIRED`、`INVALID_TOKEN`、`TOKEN_EXPIRED`：未通过认证。
+- `401 AUTH_REQUIRED`、`INVALID_TOKEN`、`TOKEN_EXPIRED`、`TOKEN_REVOKED`：未通过认证。
 - `409 FLIGHT_NOT_FOUND_OR_SOLD_OUT`：航班不存在、已起飞、状态不可预订或余票不足。
 - `409 IDEMPOTENCY_KEY_CONFLICT`：同一用户复用了 key，但请求内容不同。
 - `503 BOOKING_WRITES_PAUSED`：维护期间暂停创建和取消订单。
@@ -1013,6 +1050,7 @@ npm run reconcile:admin
 | 401 | `INVALID_CREDENTIALS` | 登录邮箱或密码错误。 |
 | 401 | `INVALID_TOKEN` | Token 无效、签名不正确或用户不存在。 |
 | 401 | `TOKEN_EXPIRED` | Token 已过期。 |
+| 401 | `TOKEN_REVOKED` | Token 已被服务端注销；需要重新登录。 |
 | 403 | `ACCOUNT_NOT_ACTIVE` | 用户状态不是 `ACTIVE`。 |
 | 403 | `ADMIN_REQUIRED` | 当前用户没有管理员权限。 |
 | 404 | `FLIGHT_NOT_FOUND` | 指定航班不存在。 |
@@ -1042,5 +1080,26 @@ npm run reconcile:admin
 3. 使用 `GET /api/flights/search` 查询航班；客户端按 UTC 时间显示时应转换为需要展示的本地时区。
 4. 用户确认后生成 UUID，并调用 `POST /api/bookings`。同一次预订的重试必须沿用同一个 UUID。
 5. 使用 `GET /api/bookings/me` 展示订单列表，使用 `GET /api/bookings/:bookingId` 打开详情；需要取消时调用 `PATCH /api/bookings/:bookingId/cancel`。
+6. 使用 `POST /api/auth/logout` 撤销登录，再清除客户端状态。
 
 未来 AI 功能应调用同一组 API 或其后端服务封装；AI 不应直接访问 MongoDB，也不应绕过认证、余票校验或幂等预订规则。
+
+## 非 admin API 与当前前端的对应关系
+
+| 前端需求 | 使用的接口 | 结论 |
+| --- | --- | --- |
+| 注册、登录、只读 Profile | `register`、`login`、`me` | 足够；Profile 没有编辑流程，无需增加修改用户接口。 |
+| 服务端退出登录 | `POST /api/auth/logout` | 从 `users.tokens` 删除当前原始 Token，只结束当前会话。 |
+| 机场选择、同城机场切换 | `GET /api/airports/search` | 足够；最终仍选择一个具体 IATA 代码。 |
+| 日期、旅客数、上午/下午、航空公司筛选与排序分页 | `GET /api/flights/search` | 足够；筛选仍在服务端进行。 |
+| 完整航空公司选项 | 新增 `GET /api/airlines` | 避免只扫描前 50 条航班导致选项缺失。 |
+| 五日最低价栏 | 对五个日期分别搜索，`limit=1&sortBy=price&sortOrder=asc` | 复用现有接口，价格来自实际结果；仅改变页码或排序时不重查此栏。 |
+| 航班详情与确认预订 | `GET /api/flights/:flightId`、`POST /api/bookings` | 足够；总价用整数美分计算，网络重试复用 UUID。 |
+| My trips、订单详情与取消 | 当前四个订单读取/创建/取消接口 | 足够；固定按创建时间倒序，不提供虚假的筛选/排序控件。 |
+| AI 聊天与清除会话 | 中间层 `POST /api/chat`、`DELETE /api/chat/{sessionId}` | 已有接口，浏览器通过 `/chat-api/chat` 代理调用；二者均验证 Bearer Token，缓存与删除按用户隔离。 |
+
+参考截图中的忘记密码和语言选择尚无相应产品流程，因此前端暂不展示可点击的占位入口。密码找回需要验证邮件及一次性重置凭证，不能只加一个修改密码的公开接口。英文界面不需要为了一个语言标签增加后端路由。
+
+AI 会话的真实过期时间没有在响应中提供；前端不再固定宣称“Expires in 1 hour”。如果需要精确倒计时，应先由中间层返回 `expiresAt`。聊天仍由中间层调用业务 API，不需要在 Node 后端重复添加一套 AI 业务路由。
+
+当前保留 Bearer 客户端契约；浏览器 Remember me 保存的仍是受 24 小时有效期约束的凭证。服务端按本项目约定在 `users.tokens` 保存原始 JWT，而不是 Token 摘要。

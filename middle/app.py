@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Response, Security, status
+from fastapi import Depends, FastAPI, HTTPException, Response, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
@@ -63,12 +63,15 @@ class ChatResponse(BaseModel):
     request_id: uuid.UUID = Field(alias="requestId")
     message: str
     replayed: bool = False
+    # public REST DTOs pass through unchanged; add per-tool models if their contracts diverge.
+    events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @dataclass
 class CachedReply:
     user_message: str
     assistant_message: str
+    events: list[dict[str, Any]]
 
 
 @dataclass
@@ -94,14 +97,14 @@ class SessionStore:
         self.max_sessions = max_sessions
         self.ttl_seconds = ttl_seconds
         self.max_cached_replies = max_cached_replies
-        self._sessions: dict[str, SessionState] = {}
+        self._sessions: dict[tuple[str, str], SessionState] = {}
         self._lock = threading.Lock()
 
     def get_or_create(
-        self, session_id: uuid.UUID, assistant: FlightBookingAssistant
+        self, session_id: uuid.UUID, assistant: FlightBookingAssistant, user_id: str
     ) -> SessionState:
         now = time.monotonic()
-        key = str(session_id)
+        key = (user_id, str(session_id))
         with self._lock:
             expired = [
                 candidate
@@ -126,9 +129,9 @@ class SessionStore:
             state.last_access = now
             return state
 
-    def delete(self, session_id: uuid.UUID) -> bool:
+    def delete(self, session_id: uuid.UUID, user_id: str) -> bool:
         with self._lock:
-            return self._sessions.pop(str(session_id), None) is not None
+            return self._sessions.pop((user_id, str(session_id)), None) is not None
 
     def cache_reply(
         self,
@@ -136,8 +139,11 @@ class SessionStore:
         request_id: str,
         user_message: str,
         assistant_message: str,
+        events: list[dict[str, Any]],
     ) -> None:
-        state.replies[request_id] = CachedReply(user_message, assistant_message)
+        state.replies[request_id] = CachedReply(
+            user_message, assistant_message, list(events)
+        )
         state.replies.move_to_end(request_id)
         while len(state.replies) > self.max_cached_replies:
             state.replies.popitem(last=False)
@@ -177,6 +183,25 @@ bearer_scheme = HTTPBearer(
     auto_error=False,
     description="JWT returned by the Node.js /api/auth/login endpoint",
 )
+
+
+def current_user_id(
+    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+) -> str:
+    """Validate on every request, including cached replies and session deletion."""
+    if credentials is None:
+        raise HTTPException(401, detail={"code": "AUTH_REQUIRED", "message": "Sign in to use the assistant"})
+    try:
+        backend = BackendClient(
+            os.getenv("BACKEND_BASE_URL", "http://localhost:3000"),
+            timeout_seconds=float(os.getenv("BACKEND_TIMEOUT_SECONDS", "10")),
+        )
+        response = backend.get_me(credentials.credentials)
+    except (ValueError, ConfigurationError, BackendConnectionError) as error:
+        raise HTTPException(503, detail={"code": "BACKEND_UNAVAILABLE", "message": "The booking service is unavailable"}) from error
+    if response.status_code != 200:
+        raise HTTPException(response.status_code, detail=response.body.get("error", {}))
+    return response.body["data"]["user"]["id"]
 
 app = FastAPI(
     title="Flight Booking AI Middle Layer",
@@ -221,6 +246,7 @@ def health() -> dict[str, Any]:
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(
     request: ChatRequest,
+    user_id: str = Depends(current_user_id),
     credentials: HTTPAuthorizationCredentials | None = Security(
         bearer_scheme
     ),
@@ -238,7 +264,7 @@ def chat(
 
     try:
         assistant = get_assistant()
-        state = SESSION_STORE.get_or_create(session_id, assistant)
+        state = SESSION_STORE.get_or_create(session_id, assistant, user_id)
     except ConfigurationError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -262,9 +288,11 @@ def chat(
                 requestId=request_id,
                 message=cached.assistant_message,
                 replayed=True,
+                events=cached.events,
             )
 
         original_history_length = len(state.history)
+        events: list[dict[str, Any]] = []
         try:
             assistant_message = assistant.respond(
                 state.history,
@@ -275,6 +303,7 @@ def chat(
                     else None
                 ),
                 request_id=request_key,
+                event_sink=events,
             )
         except (AssistantResponseError, ToolLoopLimitError) as error:
             del state.history[original_history_length:]
@@ -301,17 +330,19 @@ def chat(
             request_key,
             user_message,
             assistant_message,
+            events,
         )
         return ChatResponse(
             sessionId=session_id,
             requestId=request_id,
             message=assistant_message,
+            events=events,
         )
 
 
 @app.delete("/api/chat/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session(session_id: uuid.UUID) -> Response:
+def delete_session(session_id: uuid.UUID, user_id: str = Depends(current_user_id)) -> Response:
     """Forget one in-memory conversation; deleting a missing session is harmless."""
 
-    SESSION_STORE.delete(session_id)
+    SESSION_STORE.delete(session_id, user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

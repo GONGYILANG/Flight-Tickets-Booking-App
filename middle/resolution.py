@@ -33,6 +33,7 @@ except ImportError:  # Lets the standard-library unit tests run before install.
 
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_MODEL = "deepseek-v4-flash"
 
 OBJECT_ID_PATTERN = re.compile(r"^[0-9a-fA-F]{24}$")
 IATA_PATTERN = re.compile(r"^[A-Z]{3}$")
@@ -321,6 +322,9 @@ class BackendClient:
 
     def health(self) -> BackendResponse:
         return self._request("GET", "/api/health")
+
+    def get_me(self, access_token: str) -> BackendResponse:
+        return self._request("GET", "/api/auth/me", access_token=access_token)
 
     def search_airports(self, query: str, limit: int) -> BackendResponse:
         return self._request(
@@ -634,7 +638,7 @@ class FlightBookingAssistant:
         *,
         deepseek_client: Any,
         tool_executor: ToolExecutor,
-        model: str = "deepseek-v4-flash",
+        model: str = DEFAULT_MODEL,
         timezone: str = "Asia/Singapore",
         max_tool_rounds: int = 8,
     ) -> None:
@@ -670,8 +674,9 @@ class FlightBookingAssistant:
         *,
         access_token: str | None,
         request_id: str,
+        event_sink: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Append one user turn, execute tools, and return the final assistant text."""
+        """Append one turn, optionally collect safe tool results, and return text."""
 
         content = user_message.strip()
         if not content:
@@ -713,6 +718,8 @@ class FlightBookingAssistant:
                 result = self.tool_executor.execute(
                     function.name, function.arguments, context
                 )
+                if event_sink is not None:
+                    event_sink.append({"tool": function.name, "result": result})
                 history.append(
                     {
                         "role": "tool",
@@ -748,7 +755,7 @@ def build_assistant_from_env() -> FlightBookingAssistant:
         raise ConfigurationError("DEEPSEEK_API_KEY is required")
 
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/beta")
-    model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    model = os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL)
     backend_url = os.getenv("BACKEND_BASE_URL", "http://localhost:3000")
     timezone = os.getenv("MIDDLE_TIMEZONE", "Asia/Singapore")
 
