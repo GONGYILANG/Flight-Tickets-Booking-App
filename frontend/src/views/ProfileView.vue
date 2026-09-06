@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ElAlert, ElButton, ElDescriptions, ElDescriptionsItem, ElTag } from 'element-plus'
+import { LoaderCircle, LogOut } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
@@ -26,33 +28,48 @@ async function signOut() {
 
 <template>
   <AppShell>
-    <section class="profile-page">
-      <h1>Profile</h1>
-      <p class="page-subtitle">Your account details</p>
-      <div class="profile-details">
-        <h2>Account details</h2>
-        <dl>
-          <div>
-            <dt>Display name</dt>
-            <dd>{{ auth.user?.displayName }}</dd>
-          </div>
-          <div>
-            <dt>Email</dt>
-            <dd>{{ auth.user?.email }}</dd>
-          </div>
-          <div>
-            <dt>Account status</dt>
-            <dd>{{ auth.user?.status === 'ACTIVE' ? 'Active' : auth.user?.status }}</dd>
-          </div>
-        </dl>
-        <RouterLink class="button button--outline" to="/trips">View my trips</RouterLink>
-        <button class="danger-link" type="button" :disabled="signingOut" @click="signOut">
-          {{ signingOut ? 'Signing out…' : 'Sign out' }}
-        </button>
-        <p class="muted signout-note">
+    <section>
+      <h1 class="text-2xl font-semibold tracking-tight">Profile</h1>
+      <p class="mt-2 text-sm text-slate-500">Your account details</p>
+      <div class="mx-auto mt-10 max-w-3xl rounded-xl border border-slate-200 p-5 sm:p-7">
+        <h2 class="mb-6 text-lg font-semibold">Account details</h2>
+        <ElDescriptions :column="1" direction="vertical" border>
+          <ElDescriptionsItem label="Display name">{{ auth.user?.displayName }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="Email"
+            ><span class="break-all">{{ auth.user?.email }}</span></ElDescriptionsItem
+          >
+          <ElDescriptionsItem label="Account status"
+            ><ElTag size="small" :type="auth.user?.status === 'ACTIVE' ? 'success' : 'danger'">{{
+              auth.user?.status === 'ACTIVE' ? 'Active' : auth.user?.status
+            }}</ElTag></ElDescriptionsItem
+          >
+        </ElDescriptions>
+        <div class="mt-6 flex flex-wrap items-center gap-5">
+          <RouterLink class="font-medium text-teal-700 hover:underline" to="/trips"
+            >View my trips</RouterLink
+          >
+          <ElButton
+            type="danger"
+            plain
+            :icon="LogOut"
+            :loading="signingOut"
+            :loading-icon="LoaderCircle"
+            :disabled="signingOut"
+            @click="signOut"
+            >{{ signingOut ? 'Signing out…' : 'Sign out' }}</ElButton
+          >
+        </div>
+        <p class="mt-4 text-xs text-slate-500">
           Signing out ends this session. Other devices stay signed in.
         </p>
-        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+        <ElAlert
+          v-if="error"
+          :title="error"
+          type="error"
+          :closable="false"
+          class="mt-4"
+          role="alert"
+        />
       </div>
     </section>
   </AppShell>

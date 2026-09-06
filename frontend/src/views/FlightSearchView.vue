@@ -1,5 +1,23 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import {
+  ElAlert,
+  ElButton,
+  ElDatePicker,
+  ElForm,
+  ElFormItem,
+  ElOption,
+  ElSelect,
+} from 'element-plus'
+import {
+  ArrowLeftRight,
+  ArrowRight,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  MessageCircle,
+  Search,
+} from 'lucide-vue-next'
+import { h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AirportPicker from '../components/AirportPicker.vue'
 import AppShell from '../components/AppShell.vue'
@@ -23,6 +41,8 @@ const departureDate = ref(today())
 const passengers = ref(1)
 const recent = ref<RecentSearch | null>(null)
 const error = ref('')
+// DatePicker expects an object component; Lucide exports a functional component.
+const calendarIcon = { render: () => h(CalendarDays, { size: 16 }) }
 
 onMounted(async () => {
   try {
@@ -103,45 +123,84 @@ function openResults(value?: RecentSearch) {
 
 <template>
   <AppShell>
-    <section class="search-page">
-      <h1>Where would you like to go?</h1>
-      <form class="flight-search" @submit.prevent="openResults()">
-        <AirportPicker v-model="origin" label="From" :exclude="destination?.iataCode" />
-        <AirportPicker v-model="destination" label="To" :exclude="origin?.iataCode" />
-        <button
-          class="swap-button"
-          type="button"
+    <section class="py-4 sm:py-8">
+      <h1 class="mb-7 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+        Where would you like to go?
+      </h1>
+      <ElForm
+        label-position="top"
+        class="grid items-end gap-4 rounded-xl border border-slate-200 p-5 sm:grid-cols-2 xl:grid-cols-[1.2fr_auto_1.2fr_1fr_.85fr_auto]"
+        @submit.prevent="openResults()"
+      >
+        <ElFormItem label="From" class="mb-0! min-w-0"
+          ><AirportPicker v-model="origin" label="From" :exclude="destination?.iataCode"
+        /></ElFormItem>
+        <ElButton
+          :icon="ArrowLeftRight"
           aria-label="Swap origin and destination"
+          class="w-full xl:w-10"
           @click="swap"
+        />
+        <ElFormItem label="To" class="mb-0! min-w-0"
+          ><AirportPicker v-model="destination" label="To" :exclude="origin?.iataCode"
+        /></ElFormItem>
+        <ElFormItem label="Departure" for="departure-date" class="mb-0! min-w-0">
+          <ElDatePicker
+            id="departure-date"
+            v-model="departureDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            format="ddd, MMM D"
+            :clearable="false"
+            :prefix-icon="calendarIcon"
+            :disabled-date="(date: Date) => date < new Date(`${today()}T00:00:00`)"
+            placeholder="Select date"
+            class="w-full!"
+          />
+        </ElFormItem>
+        <ElFormItem label="Travelers" class="mb-0! min-w-0">
+          <ElSelect v-model="passengers" aria-label="Travelers" :suffix-icon="ChevronDown">
+            <ElOption
+              v-for="count in 9"
+              :key="count"
+              :value="count"
+              :label="`${count} traveler${count === 1 ? '' : 's'}`"
+            />
+          </ElSelect>
+        </ElFormItem>
+        <ElButton type="primary" native-type="submit" :icon="Search">Search flights</ElButton>
+      </ElForm>
+      <ElAlert
+        v-if="error"
+        :title="error"
+        type="error"
+        :closable="false"
+        class="mt-4"
+        role="alert"
+      />
+      <div class="my-8 text-center">
+        <RouterLink
+          class="inline-flex items-center gap-2 font-medium text-teal-700 hover:underline"
+          to="/ai"
+          ><MessageCircle :size="18" aria-hidden="true" />Or ask the AI Assistant</RouterLink
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 7h12m0 0-3-3m3 3-3 3M17 17H5m0 0 3 3m-3-3 3-3" />
-          </svg>
-        </button>
-        <label class="search-field">
-          <span>Departure</span>
-          <input v-model="departureDate" type="date" :min="today()" required/>
-        </label>
-        <label class="search-field">
-          <span>Travelers</span>
-          <select v-model.number="passengers">
-            <option v-for="count in 9" :key="count" :value="count">
-              {{ count }} traveler{{ count === 1 ? '' : 's' }}
-            </option>
-          </select>
-        </label>
-        <button class="button search-submit" type="submit">Search flights</button>
-      </form>
-      <p v-if="error" class="form-error search-error" role="alert">{{ error }}</p>
-      <RouterLink class="ai-shortcut" to="/ai">Or ask the AI Assistant</RouterLink>
-      <section v-if="recent" class="recent-search">
-        <h2>Recent search</h2>
-        <button type="button" @click="openResults(recent)">
-          {{ recent.origin.iataCode }} → {{ recent.destination.iataCode }} ·
-          {{ formatShortDate(recent.departureDate).replace(/^\w+, /, '') }} ·
-          {{ recent.passengers }} traveler{{ recent.passengers === 1 ? '' : 's' }}
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
-        </button>
+      </div>
+      <section v-if="recent" class="mt-10">
+        <h2 class="mb-4 text-lg font-semibold">Recent search</h2>
+        <ElButton
+          text
+          class="h-auto! w-full justify-between! border-y! border-slate-200! py-5!"
+          @click="openResults(recent)"
+        >
+          <span class="flex flex-wrap items-center gap-2 text-sm"
+            >{{ recent.origin.iataCode }}<ArrowRight :size="16" aria-hidden="true" />{{
+              recent.destination.iataCode
+            }}
+            · {{ formatShortDate(recent.departureDate).replace(/^\w+, /, '') }} ·
+            {{ recent.passengers }} travelers</span
+          >
+          <ChevronRight :size="18" aria-hidden="true" />
+        </ElButton>
       </section>
     </section>
   </AppShell>

@@ -1,13 +1,18 @@
 <script setup lang="ts">
+import { ElAlert, ElButton, ElTag } from 'element-plus'
+import { ArrowRight, ChevronRight } from 'lucide-vue-next'
+import FlightTable from './FlightTable.vue'
 import { RouterLink } from 'vue-router'
 import { computed } from 'vue'
-import { amountToCents, centsToAmount, formatDuration, formatFlightDate, formatMoney, formatTime } from '../lib'
+import { amountToCents, centsToAmount, formatFlightDate, formatMoney, formatTime } from '../lib'
 import type { Airport, Booking, ChatEvent, Flight } from '../types'
 
 const props = defineProps<{ events: ChatEvent[]; passengers: number; interactive: boolean }>()
 const emit = defineEmits<{ quick: [string] }>()
 
-const hasBooking = computed(() => props.events.some((event) => event.tool === 'create_booking' && event.result.ok))
+const hasBooking = computed(() =>
+  props.events.some((event) => event.tool === 'create_booking' && event.result.ok),
+)
 const airports = (event: ChatEvent) => (event.result.data?.airports ?? []) as Airport[]
 const flights = (event: ChatEvent) => (event.result.data?.flights ?? []) as Flight[]
 const flight = (event: ChatEvent) => event.result.data?.flight as unknown as Flight | undefined
@@ -16,49 +21,116 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
 </script>
 
 <template>
-  <div class="chat-events">
+  <div class="grid w-full min-w-0 gap-3">
     <template v-for="(event, eventIndex) in events" :key="`${event.tool}-${eventIndex}`">
-      <p v-if="!event.result.ok" class="chat-event-error">{{ event.result.error?.message }}</p>
-      <div v-else-if="event.tool === 'search_airports'" class="chat-options">
-        <button
+      <ElAlert
+        v-if="!event.result.ok"
+        :title="event.result.error?.message ?? 'The request failed.'"
+        type="error"
+        :closable="false"
+        role="alert"
+      />
+      <div v-else-if="event.tool === 'search_airports'" class="flex flex-wrap gap-2">
+        <ElButton
           v-for="airport in airports(event)"
           :key="airport.id"
-          type="button"
+          class="m-0!"
           :disabled="!interactive"
           @click="emit('quick', `Use ${airport.name} (${airport.iataCode}).`)"
-        >{{ airport.iataCode }} · {{ airport.name }}</button>
+          >{{ airport.iataCode }} · {{ airport.name }}</ElButton
+        >
       </div>
-      <div v-else-if="event.tool === 'search_flights'" class="chat-flight-list">
-        <article v-for="(item, index) in flights(event)" :key="item.id" class="chat-flight-card">
-          <div><strong>{{ index + 1 }} · {{ item.flightNumber }}</strong><span>{{ item.airline.name }}</span></div>
-          <div><strong>{{ formatTime(item.departureAt, item.originAirport.timezone) }} {{ item.originAirport.iataCode }} → {{ formatTime(item.arrivalAt, item.destinationAirport.timezone) }} {{ item.destinationAirport.iataCode }}</strong><span>Nonstop · {{ formatDuration(item.durationMinutes) }}</span></div>
-          <div><span>{{ item.availableSeats }} seats left</span><strong>{{ formatMoney(item.price.amount, item.price.currency) }} per traveler</strong></div>
-          <button type="button" :disabled="!interactive" @click="emit('quick', `Review ${item.flightNumber} (${item.id}) departing ${item.departureAt} for ${passengers} travelers. Do not book yet.`)">Select</button>
-        </article>
+      <div
+        v-else-if="event.tool === 'search_flights'"
+        class="min-w-0 rounded-lg border border-slate-200 p-2"
+      >
+        <FlightTable
+          :flights="flights(event)"
+          :passengers="passengers"
+          selectable
+          :disabled="!interactive"
+          @select="
+            (item) =>
+              emit(
+                'quick',
+                `Review ${item.flightNumber} (${item.id}) departing ${item.departureAt} for ${passengers} travelers. Do not book yet.`,
+              )
+          "
+        />
       </div>
-      <div v-else-if="event.tool === 'get_flight' && flight(event)" class="chat-review-card">
+      <div
+        v-else-if="event.tool === 'get_flight' && flight(event)"
+        class="grid justify-items-start gap-3 rounded-lg border border-slate-200 p-5 text-sm"
+      >
         <strong>{{ flight(event)?.flightNumber }} · {{ flight(event)?.airline.name }}</strong>
-        <span>{{ formatFlightDate(flight(event)!.departureAt, flight(event)!.originAirport.timezone) }}</span>
-        <span>{{ formatTime(flight(event)!.departureAt, flight(event)!.originAirport.timezone) }} {{ flight(event)?.originAirport.iataCode }} → {{ formatTime(flight(event)!.arrivalAt, flight(event)!.destinationAirport.timezone) }} {{ flight(event)?.destinationAirport.iataCode }}</span>
-        <span>{{ passengers }} travelers · Total {{ formatMoney(centsToAmount(amountToCents(flight(event)!.price.amount) * passengers), flight(event)!.price.currency) }}</span>
-        <div v-if="!hasBooking && interactive" class="chat-actions">
-          <button class="button button--small" type="button" @click="emit('quick', `Confirm booking ${flight(event)?.flightNumber} (${flight(event)?.id}) departing ${flight(event)?.departureAt} for ${passengers} seats at ${flight(event)?.price.amount} USD per traveler.`)">Confirm booking</button>
-          <button class="button button--outline button--small" type="button" @click="emit('quick', 'Show other flights for the same search.')">Show other flights</button>
+        <span class="text-slate-500">{{
+          formatFlightDate(flight(event)!.departureAt, flight(event)!.originAirport.timezone)
+        }}</span>
+        <span class="flex flex-wrap items-center gap-2"
+          >{{ formatTime(flight(event)!.departureAt, flight(event)!.originAirport.timezone) }}
+          {{ flight(event)?.originAirport.iataCode }}<ArrowRight :size="16" aria-hidden="true" />{{
+            formatTime(flight(event)!.arrivalAt, flight(event)!.destinationAirport.timezone)
+          }}
+          {{ flight(event)?.destinationAirport.iataCode }}</span
+        >
+        <span
+          >{{ passengers }} travelers · Total
+          <strong class="text-teal-700">{{
+            formatMoney(
+              centsToAmount(amountToCents(flight(event)!.price.amount) * passengers),
+              flight(event)!.price.currency,
+            )
+          }}</strong></span
+        >
+        <div v-if="!hasBooking && interactive" class="flex flex-wrap gap-3">
+          <ElButton
+            type="primary"
+            class="m-0!"
+            @click="
+              emit(
+                'quick',
+                `Confirm booking ${flight(event)?.flightNumber} (${flight(event)?.id}) departing ${flight(event)?.departureAt} for ${passengers} seats at ${flight(event)?.price.amount} USD per traveler.`,
+              )
+            "
+            >Confirm booking</ElButton
+          >
+          <ElButton class="m-0!" @click="emit('quick', 'Show other flights for the same search.')"
+            >Show other flights</ElButton
+          >
         </div>
       </div>
-      <div v-else-if="event.tool === 'create_booking' && booking(event)" class="chat-booking-card">
-        <span>Booking confirmed</span><strong>{{ booking(event)?.bookingReference }}</strong>
-        <span>{{ formatMoney(booking(event)!.pricing.totalAmount, booking(event)!.pricing.currency) }}</span>
-        <RouterLink :to="`/trips/${booking(event)?.id}`">View booking</RouterLink>
+      <div
+        v-else-if="
+          (event.tool === 'create_booking' || event.tool === 'cancel_booking') && booking(event)
+        "
+        class="grid justify-items-start gap-3 rounded-lg border border-slate-200 p-5 text-sm"
+      >
+        <ElTag :type="booking(event)?.status === 'CANCELLED' ? 'danger' : 'success'">{{
+          booking(event)?.status === 'CANCELLED' ? 'Booking cancelled' : 'Booking confirmed'
+        }}</ElTag>
+        <strong>{{ booking(event)?.bookingReference }}</strong>
+        <span>{{
+          formatMoney(booking(event)!.pricing.totalAmount, booking(event)!.pricing.currency)
+        }}</span>
+        <RouterLink
+          class="inline-flex items-center gap-1 font-medium text-teal-700 hover:underline"
+          :to="`/trips/${booking(event)?.id}`"
+          >View booking<ChevronRight :size="16" aria-hidden="true"
+        /></RouterLink>
       </div>
-      <div v-else-if="event.tool === 'list_my_bookings'" class="chat-booking-list">
-        <RouterLink v-for="item in bookings(event)" :key="item.id" :to="`/trips/${item.id}`">
-          {{ item.bookingReference }} · {{ item.flight.flightNumber }} · {{ item.status.toLowerCase() }}
-        </RouterLink>
-      </div>
-      <div v-else-if="event.tool === 'cancel_booking' && booking(event)" class="chat-booking-card">
-        <span>Booking cancelled</span><strong>{{ booking(event)?.bookingReference }}</strong>
-        <RouterLink :to="`/trips/${booking(event)?.id}`">View booking</RouterLink>
+      <div
+        v-else-if="event.tool === 'list_my_bookings'"
+        class="grid gap-3 rounded-lg border border-slate-200 p-5 text-sm"
+      >
+        <RouterLink
+          v-for="item in bookings(event)"
+          :key="item.id"
+          class="font-medium text-teal-700 hover:underline"
+          :to="`/trips/${item.id}`"
+          >{{ item.bookingReference }} · {{ item.flight.flightNumber }} ·
+          {{ item.status.toLowerCase() }}</RouterLink
+        >
+        <p v-if="!bookings(event).length" class="text-slate-500">No bookings yet.</p>
       </div>
     </template>
   </div>

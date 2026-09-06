@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { ElAlert, ElButton, ElDrawer, ElForm, ElFormItem, ElInput } from 'element-plus'
+import { LoaderCircle, Menu, Send, Trash2, X } from 'lucide-vue-next'
+import ConversationList from '../components/ConversationList.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import AppShell from '../components/AppShell.vue'
 import ChatEventCards from '../components/ChatEventCards.vue'
@@ -57,55 +60,67 @@ watch(
 </script>
 
 <template>
-  <AppShell>
-    <section class="ai-layout">
-      <aside class="conversation-sidebar" :class="{ open: sidebarOpen }">
-        <button
-          class="button button--outline button--wide"
-          type="button"
-          :disabled="chat.sending"
-          @click="chat.createConversation(); sidebarOpen = false"
-        >
-          ＋ New conversation
-        </button>
-        <button
-          v-for="conversation in chat.conversations"
-          :key="conversation.id"
-          type="button"
-          :class="{ selected: conversation.id === chat.currentId }"
-          @click="chat.select(conversation.id); sidebarOpen = false"
-        >
-          {{ conversation.title }}
-        </button>
+  <AppShell flush>
+    <section class="grid h-[calc(100dvh-4rem)] min-h-0 md:grid-cols-[280px_minmax(0,1fr)]">
+      <aside class="hidden overflow-y-auto border-r border-slate-200 p-5 md:block">
+        <ConversationList />
       </aside>
-      <div class="chat-panel">
-        <header class="chat-header">
+      <ElDrawer
+        v-model="sidebarOpen"
+        title="Conversations"
+        direction="ltr"
+        size="min(320px, 90vw)"
+        :close-icon="X"
+        ><ConversationList @selected="sidebarOpen = false"
+      /></ElDrawer>
+      <div class="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]">
+        <header
+          class="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-5 lg:px-8"
+        >
           <div>
-            <button
-              class="sidebar-toggle"
-              type="button"
-              aria-label="Toggle conversations"
-              :aria-expanded="sidebarOpen"
-              @click="sidebarOpen = !sidebarOpen"
-            >
-              ☰
-            </button>
-            <h1>AI Assistant</h1>
-            <p><span></span> {{ chat.sending ? 'Waiting for assistant…' : 'Ready to chat' }}</p>
+            <div class="flex items-center gap-3">
+              <ElButton
+                class="md:hidden!"
+                :icon="Menu"
+                aria-label="Toggle conversations"
+                :aria-expanded="sidebarOpen"
+                @click="sidebarOpen = true"
+              />
+              <h1 class="text-xl font-semibold tracking-tight sm:text-2xl">AI Assistant</h1>
+            </div>
+            <p class="mt-2 text-xs text-slate-500">
+              {{ chat.sending ? 'Waiting for assistant…' : 'Ready to chat' }}
+            </p>
           </div>
-          <button type="button" :disabled="chat.sending" @click="clearSession">
-            Clear session
-          </button>
+          <ElButton text :icon="Trash2" :disabled="chat.sending" @click="clearSession"
+            >Clear session</ElButton
+          >
         </header>
-        <div ref="messageList" class="messages" aria-live="polite">
-          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+        <div ref="messageList" class="min-h-0 overflow-y-auto px-4 py-6 lg:px-8" aria-live="polite">
+          <ElAlert
+            v-if="error"
+            :title="error"
+            type="error"
+            :closable="false"
+            class="mb-4"
+            role="alert"
+          />
           <article
             v-for="(message, index) in chat.current?.messages"
             :key="message.id"
-            class="message"
-            :class="`message--${message.role}`"
+            class="mb-5 grid min-w-0 gap-3"
+            :class="message.role === 'user' ? 'justify-items-end' : 'justify-items-start'"
           >
-            <div class="message-bubble">{{ message.text }}</div>
+            <div
+              class="max-w-full rounded-xl px-4 py-3 text-sm leading-6 wrap-anywhere whitespace-pre-wrap sm:max-w-[85%]"
+              :class="
+                message.role === 'user'
+                  ? 'bg-teal-700 text-white'
+                  : 'border border-slate-200 bg-slate-50 text-slate-800'
+              "
+            >
+              {{ message.text }}
+            </div>
             <ChatEventCards
               v-if="message.events?.length"
               :events="message.events"
@@ -113,30 +128,45 @@ watch(
               :interactive="message.id === latestAssistant?.id && !chat.sending"
               @quick="submit"
             />
-            <button
+            <ElButton
               v-if="message.failed"
-              class="retry-message"
-              type="button"
+              type="danger"
+              text
               :disabled="chat.sending"
               @click="retry(message.requestId, message.text)"
+              >{{ message.error ?? 'Message failed' }} · Retry</ElButton
             >
-              {{ message.error ?? 'Message failed' }} · Retry
-            </button>
           </article>
-          <p v-if="chat.sending" class="message-loading">Assistant is working…</p>
+          <p v-if="chat.sending" class="flex items-center gap-2 text-sm text-slate-500">
+            <LoaderCircle
+              :size="16"
+              class="animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />Assistant is working…
+          </p>
         </div>
-        <form class="chat-composer" @submit.prevent="submit()">
-          <input
-            v-model="input"
-            maxlength="4000"
-            placeholder="Type a message"
-            aria-label="Message"
-          />
-          <button class="button" type="submit" :disabled="chat.sending || !input.trim()">
-            Send
-          </button>
-          <p>AI actions use the same availability and booking rules as the Flights page.</p>
-        </form>
+        <ElForm
+          class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-t border-slate-200 px-4 py-4 lg:px-8"
+          @submit.prevent="submit()"
+        >
+          <ElFormItem class="mb-0! min-w-0"
+            ><ElInput
+              v-model="input"
+              maxlength="4000"
+              placeholder="Type a message"
+              aria-label="Message"
+          /></ElFormItem>
+          <ElButton
+            type="primary"
+            native-type="submit"
+            :icon="Send"
+            :disabled="chat.sending || !input.trim()"
+            >Send</ElButton
+          >
+          <p class="col-span-full text-xs leading-5 text-slate-500">
+            AI actions use the same availability and booking rules as the Flights page.
+          </p>
+        </ElForm>
       </div>
     </section>
   </AppShell>

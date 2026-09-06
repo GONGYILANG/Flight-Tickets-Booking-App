@@ -1,4 +1,18 @@
 <script setup lang="ts">
+import {
+  ElAlert,
+  ElButton,
+  ElDescriptions,
+  ElDescriptionsItem,
+  ElForm,
+  ElFormItem,
+  ElOption,
+  ElSelect,
+  ElSkeleton,
+  ElTag,
+} from 'element-plus'
+import { ArrowLeft, ChevronDown, LoaderCircle } from 'lucide-vue-next'
+import FlightItinerary from '../components/FlightItinerary.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
@@ -8,7 +22,6 @@ import {
   bookingAttempt,
   boundedInteger,
   centsToAmount,
-  formatDuration,
   formatFlightDate,
   formatMoney,
   formatTime,
@@ -87,117 +100,127 @@ async function confirmBooking() {
 </script>
 
 <template>
-  <AppShell>
-    <p v-if="loading" class="state-message">Loading flight…</p>
-    <div v-else-if="error" class="state-message state-message--error">
-      <p>{{ error }}</p>
-      <button class="button button--outline" type="button" @click="reload++">Try again</button>
+  <AppShell wide>
+    <div v-if="loading" class="py-8" role="status">
+      <p class="mb-4 text-slate-500">Loading flight…</p>
+      <ElSkeleton :rows="5" animated />
     </div>
-    <section v-else-if="flight" class="details-layout">
-      <div>
-        <button class="back-link" type="button" @click="router.back()">← Back to results</button>
-        <h1>{{ flight.flightNumber }} · {{ flight.airline.name }}</h1>
-        <span
-          class="status"
-          :class="{
-            'status--confirmed': flight.status === 'SCHEDULED',
-            'status-delayed': flight.status === 'DELAYED',
-            'status--cancelled': flight.status === 'CANCELLED',
-          }"
+    <div v-else-if="error" class="grid gap-4">
+      <ElAlert :title="error" type="error" :closable="false" role="alert" /><ElButton
+        class="justify-self-start"
+        @click="reload++"
+        >Try again</ElButton
+      >
+    </div>
+    <section v-else-if="flight" class="grid gap-8 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
+      <div class="min-w-0 space-y-6">
+        <ElButton link type="primary" :icon="ArrowLeft" @click="router.back()"
+          >Back to results</ElButton
         >
-          {{ flight.status.charAt(0) + flight.status.slice(1).toLowerCase() }}
-        </span>
-        <div class="itinerary-card">
-          <div>
-            <strong>
-              {{ formatTime(flight.departureAt, flight.originAirport.timezone) }}
-            </strong>
-            <b>{{ flight.originAirport.iataCode }}</b>
-            <span>{{ flight.originAirport.name }}</span>
-          </div>
-          <div class="itinerary-line">
-            <span>{{ formatDuration(flight.durationMinutes) }} · Nonstop</span>
-            <i></i>
-            <span>{{ formatFlightDate(flight.departureAt, flight.originAirport.timezone) }}</span>
-          </div>
-          <div>
-            <strong>
-              {{ formatTime(flight.arrivalAt, flight.destinationAirport.timezone) }}
-            </strong>
-            <b>{{ flight.destinationAirport.iataCode }}</b>
-            <span>{{ flight.destinationAirport.name }}</span>
-          </div>
+        <div>
+          <h1 class="mb-3 text-2xl font-semibold tracking-tight">
+            {{ flight.flightNumber }} · {{ flight.airline.name }}
+          </h1>
+          <ElTag
+            :type="
+              flight.status === 'DELAYED'
+                ? 'warning'
+                : flight.status === 'CANCELLED'
+                  ? 'danger'
+                  : 'success'
+            "
+            >{{ flight.status.charAt(0) + flight.status.slice(1).toLowerCase() }}</ElTag
+          >
         </div>
-        <section class="detail-panel">
-          <h2>Flight details</h2>
-          <dl>
-            <div>
-              <dt>Current departure</dt>
-              <dd>{{ formatTime(flight.departureAt, flight.originAirport.timezone) }}</dd>
-            </div>
-            <div v-if="flight.scheduleChanged">
-              <dt>Originally scheduled</dt>
-              <dd>{{ formatTime(flight.scheduledDepartureAt, flight.originAirport.timezone) }}</dd>
-            </div>
-            <div>
-              <dt>Current arrival</dt>
-              <dd>{{ formatTime(flight.arrivalAt, flight.destinationAirport.timezone) }}</dd>
-            </div>
-            <div v-if="flight.scheduleChanged">
-              <dt>Original arrival</dt>
-              <dd>
-                {{
-                  formatFlightDate(flight.scheduledArrivalAt, flight.destinationAirport.timezone)
-                }}
-                · {{ formatTime(flight.scheduledArrivalAt, flight.destinationAirport.timezone) }}
-              </dd>
-            </div>
-            <div>
-              <dt>Available seats</dt>
-              <dd>{{ flight.availableSeats }}</dd>
-            </div>
-            <div>
-              <dt>Price per traveler</dt>
-              <dd>{{ formatMoney(flight.price.amount, flight.price.currency) }}</dd>
-            </div>
-          </dl>
+        <FlightItinerary :flight="flight" />
+        <section class="rounded-xl border border-slate-200 p-5 sm:p-6">
+          <h2 class="mb-5 text-lg font-semibold">Flight details</h2>
+          <ElDescriptions :column="1" border label-width="160">
+            <ElDescriptionsItem label="Current departure">{{
+              formatTime(flight.departureAt, flight.originAirport.timezone)
+            }}</ElDescriptionsItem>
+            <ElDescriptionsItem v-if="flight.scheduleChanged" label="Originally scheduled"
+              >{{ formatFlightDate(flight.scheduledDepartureAt, flight.originAirport.timezone) }} ·
+              {{
+                formatTime(flight.scheduledDepartureAt, flight.originAirport.timezone)
+              }}</ElDescriptionsItem
+            >
+            <ElDescriptionsItem label="Current arrival">{{
+              formatTime(flight.arrivalAt, flight.destinationAirport.timezone)
+            }}</ElDescriptionsItem>
+            <ElDescriptionsItem v-if="flight.scheduleChanged" label="Original arrival"
+              >{{
+                formatFlightDate(flight.scheduledArrivalAt, flight.destinationAirport.timezone)
+              }}
+              ·
+              {{
+                formatTime(flight.scheduledArrivalAt, flight.destinationAirport.timezone)
+              }}</ElDescriptionsItem
+            >
+            <ElDescriptionsItem label="Available seats">{{
+              flight.availableSeats
+            }}</ElDescriptionsItem>
+            <ElDescriptionsItem label="Price per traveler">{{
+              formatMoney(flight.price.amount, flight.price.currency)
+            }}</ElDescriptionsItem>
+          </ElDescriptions>
         </section>
       </div>
-      <aside class="booking-review">
-        <h2>Review booking</h2>
-        <label>
-          Travelers
-          <select v-model.number="passengers" :disabled="booking">
-            <option v-for="count in 9" :key="count" :value="count">{{ count }}</option>
-          </select>
-        </label>
-        <div class="booking-line">
-          <span>
-            {{ passengers }} traveler{{ passengers === 1 ? '' : 's' }} ×
-            {{ formatMoney(flight.price.amount, flight.price.currency) }}
-          </span>
-          <span>{{ formatMoney(totalAmount, flight.price.currency) }}</span>
-        </div>
-        <div class="booking-total">
-          <strong>Total</strong>
-          <strong>{{ formatMoney(totalAmount, flight.price.currency) }}</strong>
-        </div>
-        <p v-if="bookingError" class="form-error" role="alert">
-          {{ bookingError }} You can safely retry this booking.
+      <aside class="self-start rounded-xl border border-slate-200 p-5 sm:p-6">
+        <h2 class="mb-6 text-xl font-semibold">Review booking</h2>
+        <ElForm label-position="top" @submit.prevent="confirmBooking">
+          <ElFormItem label="Travelers">
+            <ElSelect
+              v-model="passengers"
+              aria-label="Travelers"
+              :disabled="booking"
+              :suffix-icon="ChevronDown"
+              ><ElOption v-for="count in 9" :key="count" :value="count" :label="String(count)"
+            /></ElSelect>
+          </ElFormItem>
+          <div class="flex flex-wrap justify-between gap-3 border-y border-slate-200 py-5 text-sm">
+            <span
+              >{{ passengers }} travelers ×
+              {{ formatMoney(flight.price.amount, flight.price.currency) }}</span
+            ><span>{{ formatMoney(totalAmount, flight.price.currency) }}</span>
+          </div>
+          <div class="my-6 flex justify-between gap-3 text-lg font-semibold">
+            <span>Total</span
+            ><span class="text-teal-700">{{
+              formatMoney(totalAmount, flight.price.currency)
+            }}</span>
+          </div>
+          <ElAlert
+            v-if="bookingError"
+            :title="`${bookingError} You can safely retry this booking.`"
+            type="error"
+            :closable="false"
+            class="mb-4"
+            role="alert"
+          />
+          <ElAlert
+            v-if="!isBookable(flight, passengers)"
+            title="This flight is unavailable for the selected travelers."
+            type="warning"
+            :closable="false"
+            class="mb-4"
+          />
+          <ElButton
+            type="primary"
+            native-type="submit"
+            class="w-full"
+            :loading="booking"
+            :loading-icon="LoaderCircle"
+            :disabled="booking || !isBookable(flight, passengers)"
+            >{{ booking ? 'Confirming…' : 'Confirm booking' }}</ElButton
+          >
+        </ElForm>
+        <p class="my-5 text-center text-xs leading-5 text-slate-500">
+          No payment is collected. This is a simulated booking.
         </p>
-        <p v-if="!isBookable(flight, passengers)" class="form-error" role="status">
-          This flight is unavailable for the selected travelers.
-        </p>
-        <button
-          class="button button--wide"
-          type="button"
-          :disabled="booking || !isBookable(flight, passengers)"
-          @click="confirmBooking"
-        >
-          {{ booking ? 'Confirming…' : 'Confirm booking' }}
-        </button>
-        <p class="booking-note">No payment is collected. This is a simulated booking.</p>
-        <button class="link-button" type="button" @click="router.back()">Cancel</button>
+        <div class="text-center">
+          <ElButton link type="primary" @click="router.back()">Cancel</ElButton>
+        </div>
       </aside>
     </section>
   </AppShell>

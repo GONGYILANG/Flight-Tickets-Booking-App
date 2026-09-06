@@ -1,4 +1,14 @@
 <script setup lang="ts">
+import {
+  ElAlert,
+  ElButton,
+  ElPagination,
+  ElSkeleton,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+} from 'element-plus'
+import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
@@ -45,91 +55,105 @@ function go(page: number) {
 </script>
 
 <template>
-  <AppShell>
-    <section class="trips-page">
-      <h1>My trips</h1>
-      <p class="page-subtitle">Your simulated bookings</p>
-      <div class="trips-toolbar">
-        <span>Newest first</span>
-        <span>
-          {{ pagination.totalItems }} booking{{ pagination.totalItems === 1 ? '' : 's' }}
-        </span>
-      </div>
-      <p v-if="loading" class="state-message">Loading bookings…</p>
-      <div v-else-if="error" class="state-message state-message--error">
-        <p>{{ error }}</p>
-        <button class="button button--outline" type="button" @click="reload++">Try again</button>
-      </div>
-      <div v-else-if="!bookings.length" class="state-message">
-        <h2>No bookings yet</h2>
-        <RouterLink class="button" to="/flights">Search flights</RouterLink>
-      </div>
-      <div v-else class="trips-table-wrap">
-        <table class="trips-table">
-          <thead>
-            <tr>
-              <th>Booking</th>
-              <th>Flight</th>
-              <th>Date & route</th>
-              <th>Travelers</th>
-              <th>Total</th>
-              <th>Source</th>
-              <th>Status</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in bookings" :key="item.id">
-              <td>
-                <strong>{{ item.bookingReference }}</strong>
-              </td>
-              <td>{{ item.flight.flightNumber }}</td>
-              <td>
-                <strong>
-                  {{formatFlightDate(item.flight.departureAt, item.flight.originAirport.timezone)}}
-                </strong>
-                <span>
-                  {{ formatTime(item.flight.departureAt, item.flight.originAirport.timezone) }}
-                  {{ item.flight.originAirport.iataCode }} →
-                  {{ formatTime(item.flight.arrivalAt, item.flight.destinationAirport.timezone) }}
-                  {{ item.flight.destinationAirport.iataCode }}
-                </span>
-              </td>
-              <td>{{ item.seatCount }} traveler{{ item.seatCount === 1 ? '' : 's' }}</td>
-              <td>{{ formatMoney(item.pricing.totalAmount, item.pricing.currency) }}</td>
-              <td>Booked via {{ item.source === 'AI' ? 'AI' : 'Web' }}</td>
-              <td>
-                <span
-                  class="status"
-                  :class="item.status === 'CONFIRMED' ? 'status--confirmed' : 'status--cancelled'"
-                >
-                  {{ item.status === 'CONFIRMED' ? 'Confirmed' : 'Cancelled' }}
-                </span>
-              </td>
-              <td>
-                <RouterLink :to="`/trips/${item.id}`">View details</RouterLink>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <nav
-        v-if="!loading && !error && pagination.totalPages"
-        class="pagination"
-        aria-label="Booking pages"
-      >
-        <button type="button" :disabled="pagination.page <= 1" @click="go(pagination.page - 1)">
-          Previous
-        </button>
-        <span>{{ pagination.page }} / {{ pagination.totalPages }}</span>
-        <button
-          type="button"
-          :disabled="pagination.page >= pagination.totalPages"
-          @click="go(pagination.page + 1)"
+  <AppShell wide>
+    <section>
+      <h1 class="text-2xl font-semibold tracking-tight">My trips</h1>
+      <p class="mt-2 text-sm text-slate-500">Your simulated bookings</p>
+      <div class="my-6 flex justify-between text-sm text-slate-500">
+        <span>Newest first</span
+        ><span
+          >{{ pagination.totalItems }} booking{{ pagination.totalItems === 1 ? '' : 's' }}</span
         >
-          Next
-        </button>
-      </nav>
+      </div>
+      <div v-if="loading" class="py-8" role="status">
+        <p class="mb-4 text-slate-500">Loading bookings…</p>
+        <ElSkeleton :rows="4" animated />
+      </div>
+      <div v-else-if="error" class="grid gap-4">
+        <ElAlert :title="error" type="error" :closable="false" role="alert" /><ElButton
+          class="justify-self-start"
+          @click="reload++"
+          >Try again</ElButton
+        >
+      </div>
+      <ElTable
+        v-else
+        :data="bookings"
+        row-key="id"
+        size="default"
+        class="w-full"
+        aria-label="My trips"
+      >
+        <ElTableColumn prop="bookingReference" label="Booking" min-width="190"
+          ><template #default="{ row }"
+            ><strong>{{ row.bookingReference }}</strong></template
+          ></ElTableColumn
+        >
+        <ElTableColumn prop="flight.flightNumber" label="Flight" width="100" />
+        <ElTableColumn label="Date & route" min-width="250"
+          ><template #default="{ row }"
+            ><div class="py-3">
+              <strong>{{
+                formatFlightDate(row.flight.departureAt, row.flight.originAirport.timezone)
+              }}</strong>
+              <p class="mt-2 flex items-center gap-1 text-xs text-slate-500">
+                {{ formatTime(row.flight.departureAt, row.flight.originAirport.timezone) }}
+                {{ row.flight.originAirport.iataCode
+                }}<ArrowRight :size="14" aria-hidden="true" />{{
+                  formatTime(row.flight.arrivalAt, row.flight.destinationAirport.timezone)
+                }}
+                {{ row.flight.destinationAirport.iataCode }}
+              </p>
+            </div></template
+          ></ElTableColumn
+        >
+        <ElTableColumn prop="seatCount" label="Travelers" width="100" />
+        <ElTableColumn label="Total" min-width="140"
+          ><template #default="{ row }">{{
+            formatMoney(row.pricing.totalAmount, row.pricing.currency)
+          }}</template></ElTableColumn
+        >
+        <ElTableColumn label="Source" min-width="125"
+          ><template #default="{ row }"
+            >Booked via {{ row.source === 'AI' ? 'AI' : 'Web' }}</template
+          ></ElTableColumn
+        >
+        <ElTableColumn label="Status" min-width="130"
+          ><template #default="{ row }"
+            ><ElTag size="small" :type="row.status === 'CONFIRMED' ? 'success' : 'danger'">{{
+              row.status === 'CONFIRMED' ? 'Confirmed' : 'Cancelled'
+            }}</ElTag></template
+          ></ElTableColumn
+        >
+        <ElTableColumn label="Action" width="135" fixed="right"
+          ><template #default="{ row }"
+            ><RouterLink
+              class="inline-flex items-center gap-1 font-medium text-teal-700 hover:underline"
+              :to="`/trips/${row.id}`"
+              >View details<ChevronRight :size="16" aria-hidden="true" /></RouterLink></template
+        ></ElTableColumn>
+        <template #empty
+          ><div class="grid justify-items-center gap-3 py-10">
+            <p>No bookings yet</p>
+            <RouterLink class="font-medium text-teal-700 hover:underline" to="/flights"
+              >Search flights</RouterLink
+            >
+          </div></template
+        >
+      </ElTable>
+      <ElPagination
+        v-if="!loading && !error && pagination.totalPages"
+        class="mt-6 justify-center"
+        background
+        layout="prev, pager, next"
+        :prev-icon="ChevronLeft"
+        :next-icon="ChevronRight"
+        :page-size="pagination.limit"
+        :total="pagination.totalItems"
+        :current-page="pagination.page"
+        aria-label="Booking pages"
+        @update:current-page="go"
+      />
     </section>
   </AppShell>
 </template>

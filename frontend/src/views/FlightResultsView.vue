@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { ElAlert, ElButton, ElOption, ElPagination, ElSelect, ElSkeleton } from 'element-plus'
+import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ListFilter } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import FilterDrawer, { type FilterValue } from '../components/FilterDrawer.vue'
-import FlightListRow from '../components/FlightListRow.vue'
+import FlightTable from '../components/FlightTable.vue'
 import { listAirlines, searchAirports, searchFlights } from '../api'
 import {
   boundedInteger,
@@ -201,105 +203,105 @@ function applyFilters(value: FilterValue) {
 </script>
 
 <template>
-  <AppShell>
-    <section class="results-page">
-      <header class="route-summary">
+  <AppShell wide>
+    <section>
+      <header class="mb-6 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1>
-            {{ originAirport?.cityName ?? search.origin }} ({{ search.origin }}) →
-            {{ destinationAirport?.cityName ?? search.destination }} ({{ search.destination }})
+          <h1
+            class="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900"
+          >
+            <span>{{ originAirport?.cityName ?? search.origin }} ({{ search.origin }})</span
+            ><ArrowRight :size="22" aria-hidden="true" /><span
+              >{{ destinationAirport?.cityName ?? search.destination }} ({{
+                search.destination
+              }})</span
+            >
           </h1>
-          <p>
+          <p class="mt-2 text-sm text-slate-500">
             {{ formatShortDate(search.departureDate) }} · {{ search.passengers }} traveler{{
               search.passengers === 1 ? '' : 's'
             }}
           </p>
         </div>
-        <RouterLink class="button button--outline" :to="{ path: '/flights', query: route.query }">
-          Modify search
-        </RouterLink>
+        <RouterLink
+          class="self-start rounded-lg border border-teal-700 px-4 py-2.5 text-sm font-medium text-teal-700 hover:bg-teal-50 sm:self-auto"
+          :to="{ path: '/flights', query: route.query }"
+          >Modify search</RouterLink
+        >
       </header>
-
-      <div class="date-rail" aria-label="Departure dates">
-        <button
+      <div
+        class="grid auto-cols-[150px] grid-flow-col overflow-x-auto rounded-lg border border-slate-200 sm:grid-cols-5 sm:grid-flow-row"
+        aria-label="Departure dates"
+      >
+        <ElButton
           v-for="date in dates"
           :key="date"
-          type="button"
+          text
+          class="m-0! h-auto! rounded-none! border-r! border-slate-200! px-5! py-4!"
+          :type="date === search.departureDate ? 'primary' : 'default'"
+          :bg="date === search.departureDate"
           :aria-pressed="date === search.departureDate"
-          :class="{ selected: date === search.departureDate }"
           @click="updateSearch({ departureDate: date, page: 1 })"
         >
-          <strong>{{ formatShortDate(date) }}</strong>
-          <span>{{ datePrices[date] ?? 'Loading…' }}</span>
-        </button>
+          <span class="grid gap-2"
+            ><strong>{{ formatShortDate(date) }}</strong
+            ><span class="text-xs">{{ datePrices[date] ?? 'Loading…' }}</span></span
+          >
+        </ElButton>
       </div>
-
-      <div class="results-toolbar">
-        <strong>
-          {{ pagination.totalItems }} flight{{ pagination.totalItems === 1 ? '' : 's' }}
-        </strong>
-        <div>
-          <button class="button button--outline" type="button" @click="drawerOpen = true">
-            Filters
-          </button>
-          <label class="sort-control">
-            <span class="visually-hidden">Sort flights</span>
-            <select v-model="sortValue">
-              <option value="departureAt:asc">Departure time</option>
-              <option value="price:asc">Price, low to high</option>
-              <option value="price:desc">Price, high to low</option>
-            </select>
-          </label>
+      <div class="my-6 flex flex-wrap items-center justify-between gap-4">
+        <strong
+          >{{ pagination.totalItems }} flight{{ pagination.totalItems === 1 ? '' : 's' }}</strong
+        >
+        <div class="flex flex-wrap items-center gap-3">
+          <ElButton :icon="ListFilter" @click="drawerOpen = true">Filters</ElButton>
+          <ElSelect
+            v-model="sortValue"
+            aria-label="Sort flights"
+            :suffix-icon="ChevronDown"
+            class="w-52!"
+          >
+            <ElOption value="departureAt:asc" label="Departure time" /><ElOption
+              value="price:asc"
+              label="Price, low to high"
+            /><ElOption value="price:desc" label="Price, high to low" />
+          </ElSelect>
         </div>
       </div>
-
-      <p v-if="optionsError" class="form-error" role="alert">
-        {{ optionsError }}
-        <button class="link-button" type="button" @click="reload++">Retry</button>
-      </p>
-      <p v-if="loading" class="state-message">Loading flights…</p>
-      <div v-else-if="error" class="state-message state-message--error">
-        <p>{{ error }}</p>
-        <button class="button button--outline" type="button" @click="reload++">Try again</button>
-      </div>
-      <div v-else-if="!flights.length" class="state-message">
-        <h2>No flights found</h2>
-        <p>Try another date or change your filters.</p>
-      </div>
-      <section v-else class="flight-list" aria-label="Flight results">
-        <div class="flight-list__head">
-          <span>Flight</span><span>Departure</span><span>Arrival</span><span>Details</span
-          ><span>Price</span><span></span>
-        </div>
-        <FlightListRow
-          v-for="flight in flights"
-          :key="flight.id"
-          :flight="flight"
-          :passengers="search.passengers"
-        />
-      </section>
-
-      <nav
-        v-if="!loading && !error && pagination.totalPages"
-        class="pagination"
-        aria-label="Results pages"
+      <ElAlert
+        v-if="optionsError"
+        :title="optionsError"
+        type="error"
+        :closable="false"
+        class="mb-4"
+        role="alert"
+        ><ElButton link type="primary" @click="reload++">Retry</ElButton></ElAlert
       >
-        <button
-          type="button"
-          :disabled="pagination.page <= 1"
-          @click="updateSearch({ page: pagination.page - 1 })"
+      <div v-if="loading" class="py-8" role="status">
+        <p class="mb-4 text-slate-500">Loading flights…</p>
+        <ElSkeleton :rows="4" animated />
+      </div>
+      <div v-else-if="error" class="grid gap-4 py-8">
+        <ElAlert :title="error" type="error" :closable="false" role="alert" /><ElButton
+          class="justify-self-center"
+          @click="reload++"
+          >Try again</ElButton
         >
-          Previous
-        </button>
-        <span>{{ pagination.page }} / {{ pagination.totalPages }}</span>
-        <button
-          type="button"
-          :disabled="pagination.page >= pagination.totalPages"
-          @click="updateSearch({ page: pagination.page + 1 })"
-        >
-          Next
-        </button>
-      </nav>
+      </div>
+      <FlightTable v-else :flights="flights" :passengers="search.passengers" />
+      <ElPagination
+        v-if="!loading && !error && pagination.totalPages"
+        class="mt-6 justify-center"
+        background
+        layout="prev, pager, next"
+        :prev-icon="ChevronLeft"
+        :next-icon="ChevronRight"
+        :page-size="pagination.limit"
+        :total="pagination.totalItems"
+        :current-page="pagination.page"
+        aria-label="Results pages"
+        @update:current-page="(page) => updateSearch({ page })"
+      />
     </section>
     <FilterDrawer
       :open="drawerOpen"

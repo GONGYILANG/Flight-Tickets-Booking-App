@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ElAlert, ElButton, ElCheckbox, ElForm, ElFormItem, ElInput } from 'element-plus'
+import { Eye, EyeOff, LoaderCircle } from 'lucide-vue-next'
 import { ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
@@ -54,68 +56,87 @@ async function submit() {
 </script>
 
 <template>
-  <main class="auth-page">
-    <form class="auth-form" @submit.prevent="submit">
-      <h1>{{ register ? 'Create an account' : 'Welcome back' }}</h1>
-      <p>{{ register ? 'Register' : 'Sign in' }} to search and manage your trips</p>
-      <label v-if="register">
-        Display name
-        <input
-          v-model.trim="displayName"
-          autocomplete="name"
-          placeholder="Your name"
-          minlength="2"
-          maxlength="120"
-          required
-        />
-      </label>
-      <label>
-        Email
-        <input
-          v-model.trim="email"
-          type="email"
-          autocomplete="email"
-          placeholder="you@example.com"
-          required
-          autofocus
-        />
-      </label>
-      <label>
-        Password
-        <span class="password-field">
-          <input
+  <main class="grid min-h-dvh grid-rows-[1fr_auto] gap-12 px-5 py-8 sm:px-8">
+    <section class="mx-auto w-full max-w-md self-center py-8">
+      <h1 class="text-center text-3xl font-semibold tracking-tight text-slate-900">
+        {{ register ? 'Create an account' : 'Welcome back' }}
+      </h1>
+      <p class="mt-3 mb-8 text-center text-sm text-slate-500">
+        {{ register ? 'Register' : 'Sign in' }} to search and manage your trips
+      </p>
+      <ElForm label-position="top" @submit.prevent="submit">
+        <ElFormItem v-if="register" label="Display name" for="display-name" required>
+          <ElInput
+            id="display-name"
+            v-model="displayName"
+            autocomplete="name"
+            placeholder="Your name"
+            minlength="2"
+            maxlength="120"
+            required
+          />
+        </ElFormItem>
+        <ElFormItem label="Email" for="email" required>
+          <ElInput
+            id="email"
+            v-model="email"
+            type="email"
+            autocomplete="email"
+            placeholder="you@example.com"
+            maxlength="320"
+            required
+            autofocus
+          />
+        </ElFormItem>
+        <ElFormItem label="Password" for="password" required>
+          <ElInput
+            id="password"
             v-model="password"
             :type="showPassword ? 'text' : 'password'"
             :autocomplete="register ? 'new-password' : 'current-password'"
             placeholder="Enter your password"
-            required 
-          />
-          <button
-            type="button"
-            :aria-label="showPassword ? 'Hide password' : 'Show password'"
-            :aria-pressed="showPassword"
-            @click="showPassword = !showPassword"
+            required
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z" />
-              <circle cx="12" cy="12" r="3" />
-              <path v-if="showPassword" d="m3 3 18 18" />
-            </svg>
-          </button>
-        </span>
-      </label>
-      <label class="checkbox"><input v-model="remember" type="checkbox" /> Remember me</label>
-      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-      <button class="button button--wide" type="submit" :disabled="loading">
-        {{ loading ? 'Please wait…' : register ? 'Create account' : 'Sign in' }}
-      </button>
-      <p class="auth-switch">
+            <template #suffix
+              ><ElButton
+                link
+                :icon="showPassword ? EyeOff : Eye"
+                :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                :aria-pressed="showPassword"
+                @click="showPassword = !showPassword"
+            /></template>
+          </ElInput>
+        </ElFormItem>
+        <ElCheckbox v-model="remember" class="mb-4">Remember me</ElCheckbox>
+        <ElAlert
+          v-if="error"
+          :title="error"
+          type="error"
+          :closable="false"
+          class="mb-4"
+          role="alert"
+        />
+        <ElButton
+          type="primary"
+          native-type="submit"
+          class="w-full"
+          :loading="loading"
+          :loading-icon="LoaderCircle"
+          :disabled="loading"
+          >{{ loading ? 'Please wait…' : register ? 'Create account' : 'Sign in' }}</ElButton
+        >
+      </ElForm>
+      <p class="mt-6 text-center text-sm text-slate-500">
         {{ register ? 'Already registered?' : 'New here?' }}
-        <RouterLink :to="{ path: register ? '/login' : '/register', query: route.query }">
-          {{register ? 'Sign in' : 'Create an account'}}
-        </RouterLink>
+        <RouterLink
+          class="ml-1 font-medium text-teal-700 underline underline-offset-4"
+          :to="{ path: register ? '/login' : '/register', query: route.query }"
+          >{{ register ? 'Sign in' : 'Create an account' }}</RouterLink
+        >
       </p>
-    </form>
-    <footer>Simulated flight booking system</footer>
+    </section>
+    <footer class="border-t border-slate-200 pt-5 text-center text-xs text-slate-500">
+      Simulated flight booking system
+    </footer>
   </main>
 </template>
