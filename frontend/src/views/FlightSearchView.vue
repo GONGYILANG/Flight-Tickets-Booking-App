@@ -27,7 +27,11 @@ const error = ref('')
 onMounted(async () => {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null') as RecentSearch | null
-    if (saved?.origin?.iataCode && saved.destination?.iataCode && isCalendarDate(saved.departureDate)) {
+    if (
+      saved?.origin?.iataCode &&
+      saved.destination?.iataCode &&
+      isCalendarDate(saved.departureDate)
+    ) {
       recent.value = saved
       origin.value = saved.origin
       destination.value = saved.destination
@@ -37,15 +41,23 @@ onMounted(async () => {
   } catch {
     localStorage.removeItem(KEY)
   }
-  if (typeof route.query.departureDate === 'string' && isCalendarDate(route.query.departureDate)) departureDate.value = route.query.departureDate
+  if (typeof route.query.departureDate === 'string' && isCalendarDate(route.query.departureDate))
+    departureDate.value = route.query.departureDate
   if (route.query.passengers) passengers.value = boundedInteger(route.query.passengers, 1, 9)
   try {
-    await Promise.all(([['origin', origin], ['destination', destination]] as const).map(async ([key, selected]) => {
-      const code = route.query[key]
-      if (typeof code !== 'string') return
-      const matches = await searchAirports(code)
-      selected.value = matches.find((airport) => airport.iataCode === code.toUpperCase()) ?? null
-    }))
+    await Promise.all(
+      (
+        [
+          ['origin', origin],
+          ['destination', destination],
+        ] as const
+      ).map(async ([key, selected]) => {
+        const code = route.query[key]
+        if (typeof code !== 'string') return
+        const matches = await searchAirports(code)
+        selected.value = matches.find((airport) => airport.iataCode === code.toUpperCase()) ?? null
+      }),
+    )
   } catch {
     error.value = 'Your previous airports could not be loaded. Please select them again.'
   }
@@ -96,11 +108,28 @@ function openResults(value?: RecentSearch) {
       <form class="flight-search" @submit.prevent="openResults()">
         <AirportPicker v-model="origin" label="From" :exclude="destination?.iataCode" />
         <AirportPicker v-model="destination" label="To" :exclude="origin?.iataCode" />
-        <button class="swap-button" type="button" aria-label="Swap origin and destination" @click="swap">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h12m0 0-3-3m3 3-3 3M17 17H5m0 0 3 3m-3-3 3-3" /></svg>
+        <button
+          class="swap-button"
+          type="button"
+          aria-label="Swap origin and destination"
+          @click="swap"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 7h12m0 0-3-3m3 3-3 3M17 17H5m0 0 3 3m-3-3 3-3" />
+          </svg>
         </button>
-        <label class="search-field"><span>Departure</span><input v-model="departureDate" type="date" :min="today()" required /></label>
-        <label class="search-field"><span>Travelers</span><select v-model.number="passengers"><option v-for="count in 9" :key="count" :value="count">{{ count }} traveler{{ count === 1 ? '' : 's' }}</option></select></label>
+        <label class="search-field">
+          <span>Departure</span>
+          <input v-model="departureDate" type="date" :min="today()" required/>
+        </label>
+        <label class="search-field">
+          <span>Travelers</span>
+          <select v-model.number="passengers">
+            <option v-for="count in 9" :key="count" :value="count">
+              {{ count }} traveler{{ count === 1 ? '' : 's' }}
+            </option>
+          </select>
+        </label>
         <button class="button search-submit" type="submit">Search flights</button>
       </form>
       <p v-if="error" class="form-error search-error" role="alert">{{ error }}</p>
@@ -108,7 +137,9 @@ function openResults(value?: RecentSearch) {
       <section v-if="recent" class="recent-search">
         <h2>Recent search</h2>
         <button type="button" @click="openResults(recent)">
-          {{ recent.origin.iataCode }} → {{ recent.destination.iataCode }} · {{ formatShortDate(recent.departureDate).replace(/^\w+, /, '') }} · {{ recent.passengers }} traveler{{ recent.passengers === 1 ? '' : 's' }}
+          {{ recent.origin.iataCode }} → {{ recent.destination.iataCode }} ·
+          {{ formatShortDate(recent.departureDate).replace(/^\w+, /, '') }} ·
+          {{ recent.passengers }} traveler{{ recent.passengers === 1 ? '' : 's' }}
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
         </button>
       </section>
