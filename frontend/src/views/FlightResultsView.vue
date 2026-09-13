@@ -275,18 +275,19 @@ function applyFilters(value: FilterValue) {
         :closable="false"
         class="mb-4"
         role="alert"
-        ><ElButton link type="primary" @click="reload++">Retry</ElButton></ElAlert
-      >
+        ><ElButton link type="primary" @click="reload++">Retry</ElButton>
+      </ElAlert>
       <div v-if="loading" class="py-8" role="status">
         <p class="mb-4 text-slate-500">Loading flights…</p>
         <ElSkeleton :rows="4" animated />
       </div>
       <div v-else-if="error" class="grid gap-4 py-8">
-        <ElAlert :title="error" type="error" :closable="false" role="alert" /><ElButton
+        <ElAlert :title="error" type="error" :closable="false" role="alert" />
+        <ElButton
           class="justify-self-center"
           @click="reload++"
-          >Try again</ElButton
-        >
+          >Try again
+        </ElButton>
       </div>
       <FlightTable v-else :flights="flights" :passengers="search.passengers" />
       <ElPagination

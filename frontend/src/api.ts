@@ -113,13 +113,16 @@ export async function searchAirports(value: string, limit = 10, signal?: AbortSi
 
 export async function searchFlights(values: FlightSearchParams, signal?: AbortSignal) {
   const response = await request<{
-    data: { flights: Flight[]; pagination: Pagination; search: FlightSearchParams & { departureTimezone: string } }
+    data: { flights: Flight[]; pagination: Pagination; search: FlightSearchParams &
+       { departureTimezone: string } }
   }>(`/api/flights/search?${toQueryParams({ ...values })}`, { signal })
   return response.data
 }
 
 export async function getFlight(flightId: string, signal?: AbortSignal) {
-  return (await request<{ data: { flight: Flight } }>(`/api/flights/${encodeURIComponent(flightId)}`, { signal })).data.flight
+  return (await request<{ data: { flight: Flight } }>(
+    `/api/flights/${encodeURIComponent(flightId)}`, { signal })
+  ).data.flight
 }
 
 export async function createBooking(flightId: string, seatCount: number, idempotencyKey: string) {
@@ -146,7 +149,8 @@ export async function listBookings(page = 1, limit = 20, signal?: AbortSignal) {
 
 export async function getBooking(bookingId: string, signal?: AbortSignal) {
   return (
-    await request<{ data: { booking: Booking } }>(`/api/bookings/${encodeURIComponent(bookingId)}`, { signal }, true)
+    await request<{ data: { booking: Booking } }>(
+      `/api/bookings/${encodeURIComponent(bookingId)}`, { signal }, true)
   ).data.booking
 }
 

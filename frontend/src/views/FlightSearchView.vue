@@ -132,18 +132,18 @@ function openResults(value?: RecentSearch) {
         class="grid items-end gap-4 rounded-xl border border-slate-200 p-5 sm:grid-cols-2 xl:grid-cols-[1.2fr_auto_1.2fr_1fr_.85fr_auto]"
         @submit.prevent="openResults()"
       >
-        <ElFormItem label="From" class="mb-0! min-w-0"
-          ><AirportPicker v-model="origin" label="From" :exclude="destination?.iataCode"
-        /></ElFormItem>
+        <ElFormItem label="From" class="mb-0! min-w-0">
+          <AirportPicker v-model="origin" label="From" :exclude="destination?.iataCode"/>
+        </ElFormItem>
         <ElButton
           :icon="ArrowLeftRight"
           aria-label="Swap origin and destination"
           class="w-full xl:w-10"
           @click="swap"
         />
-        <ElFormItem label="To" class="mb-0! min-w-0"
-          ><AirportPicker v-model="destination" label="To" :exclude="origin?.iataCode"
-        /></ElFormItem>
+        <ElFormItem label="To" class="mb-0! min-w-0">
+          <AirportPicker v-model="destination" label="To" :exclude="origin?.iataCode"/>
+        </ElFormItem>
         <ElFormItem label="Departure" for="departure-date" class="mb-0! min-w-0">
           <ElDatePicker
             id="departure-date"
@@ -182,8 +182,10 @@ function openResults(value?: RecentSearch) {
         <RouterLink
           class="inline-flex items-center gap-2 font-medium text-teal-700 hover:underline"
           to="/ai"
-          ><MessageCircle :size="18" aria-hidden="true" />Or ask the AI Assistant</RouterLink
         >
+          <MessageCircle :size="18" aria-hidden="true" />
+          Or ask the AI Assistant
+        </RouterLink>
       </div>
       <section v-if="recent" class="mt-10">
         <h2 class="mb-4 text-lg font-semibold">Recent search</h2>
@@ -192,13 +194,12 @@ function openResults(value?: RecentSearch) {
           class="h-auto! w-full justify-between! border-y! border-slate-200! py-5!"
           @click="openResults(recent)"
         >
-          <span class="flex flex-wrap items-center gap-2 text-sm"
-            >{{ recent.origin.iataCode }}<ArrowRight :size="16" aria-hidden="true" />{{
-              recent.destination.iataCode
-            }}
-            · {{ formatShortDate(recent.departureDate).replace(/^\w+, /, '') }} ·
-            {{ recent.passengers }} travelers</span
-          >
+          <span class="flex flex-wrap items-center gap-2 text-sm">
+            {{ recent.origin.iataCode }}<ArrowRight :size="16" aria-hidden="true" />
+            {{recent.destination.iataCode}}
+            · {{ formatShortDate(recent.departureDate).replace(/^\w+, /, '') }}
+            · {{ recent.passengers }} travelers
+          </span>
           <ChevronRight :size="18" aria-hidden="true" />
         </ElButton>
       </section>

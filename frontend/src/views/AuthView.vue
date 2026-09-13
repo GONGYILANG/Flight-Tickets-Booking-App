@@ -97,14 +97,15 @@ async function submit() {
             placeholder="Enter your password"
             required
           >
-            <template #suffix
-              ><ElButton
+            <template #suffix>
+              <ElButton
                 link
                 :icon="showPassword ? EyeOff : Eye"
                 :aria-label="showPassword ? 'Hide password' : 'Show password'"
                 :aria-pressed="showPassword"
                 @click="showPassword = !showPassword"
-            /></template>
+              />
+            </template>
           </ElInput>
         </ElFormItem>
         <ElCheckbox v-model="remember" class="mb-4">Remember me</ElCheckbox>
@@ -131,8 +132,9 @@ async function submit() {
         <RouterLink
           class="ml-1 font-medium text-teal-700 underline underline-offset-4"
           :to="{ path: register ? '/login' : '/register', query: route.query }"
-          >{{ register ? 'Sign in' : 'Create an account' }}</RouterLink
         >
+          {{ register ? 'Sign in' : 'Create an account' }}
+        </RouterLink>
       </p>
     </section>
     <footer class="border-t border-slate-200 pt-5 text-center text-xs text-slate-500">

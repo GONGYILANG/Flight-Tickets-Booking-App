@@ -71,8 +71,9 @@ watch(
         direction="ltr"
         size="min(320px, 90vw)"
         :close-icon="X"
-        ><ConversationList @selected="sidebarOpen = false"
-      /></ElDrawer>
+      >
+        <ConversationList @selected="sidebarOpen = false"/>
+      </ElDrawer>
       <div class="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]">
         <header
           class="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-5 lg:px-8"
@@ -92,9 +93,9 @@ watch(
               {{ chat.sending ? 'Waiting for assistant…' : 'Ready to chat' }}
             </p>
           </div>
-          <ElButton text :icon="Trash2" :disabled="chat.sending" @click="clearSession"
-            >Clear session</ElButton
-          >
+          <ElButton text :icon="Trash2" :disabled="chat.sending" @click="clearSession">
+            Clear session
+          </ElButton>
         </header>
         <div ref="messageList" class="min-h-0 overflow-y-auto px-4 py-6 lg:px-8" aria-live="polite">
           <ElAlert
@@ -134,8 +135,9 @@ watch(
               text
               :disabled="chat.sending"
               @click="retry(message.requestId, message.text)"
-              >{{ message.error ?? 'Message failed' }} · Retry</ElButton
             >
+              {{ message.error ?? 'Message failed' }} · Retry
+            </ElButton>
           </article>
           <p v-if="chat.sending" class="flex items-center gap-2 text-sm text-slate-500">
             <LoaderCircle
@@ -149,20 +151,21 @@ watch(
           class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-t border-slate-200 px-4 py-4 lg:px-8"
           @submit.prevent="submit()"
         >
-          <ElFormItem class="mb-0! min-w-0"
-            ><ElInput
+          <ElFormItem class="mb-0! min-w-0">
+            <ElInput
               v-model="input"
               maxlength="4000"
               placeholder="Type a message"
               aria-label="Message"
-          /></ElFormItem>
+            />
+          </ElFormItem>
           <ElButton
             type="primary"
             native-type="submit"
             :icon="Send"
             :disabled="chat.sending || !input.trim()"
-            >Send</ElButton
-          >
+          >Send
+          </ElButton>
           <p class="col-span-full text-xs leading-5 text-slate-500">
             AI actions use the same availability and booking rules as the Flights page.
           </p>

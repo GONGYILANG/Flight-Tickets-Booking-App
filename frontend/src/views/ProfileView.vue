@@ -36,19 +36,19 @@ async function signOut() {
         <h2 class="mb-6 text-lg font-semibold">Account details</h2>
         <ElDescriptions :column="1" direction="vertical" border>
           <ElDescriptionsItem label="Display name">{{ auth.user?.displayName }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="Email"
-            ><span class="break-all">{{ auth.user?.email }}</span></ElDescriptionsItem
-          >
-          <ElDescriptionsItem label="Account status"
-            ><ElTag size="small" :type="auth.user?.status === 'ACTIVE' ? 'success' : 'danger'">{{
-              auth.user?.status === 'ACTIVE' ? 'Active' : auth.user?.status
-            }}</ElTag></ElDescriptionsItem
-          >
+          <ElDescriptionsItem label="Email">
+            <span class="break-all">{{ auth.user?.email }}</span>
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="Account status">
+            <ElTag size="small" :type="auth.user?.status === 'ACTIVE' ? 'success' : 'danger'">
+              {{auth.user?.status === 'ACTIVE' ? 'Active' : auth.user?.status}}
+            </ElTag>
+          </ElDescriptionsItem>
         </ElDescriptions>
         <div class="mt-6 flex flex-wrap items-center gap-5">
-          <RouterLink class="font-medium text-teal-700 hover:underline" to="/trips"
-            >View my trips</RouterLink
-          >
+          <RouterLink class="font-medium text-teal-700 hover:underline" to="/trips">
+            View my trips
+          </RouterLink>
           <ElButton
             type="danger"
             plain
@@ -57,8 +57,8 @@ async function signOut() {
             :loading-icon="LoaderCircle"
             :disabled="signingOut"
             @click="signOut"
-            >{{ signingOut ? 'Signing out…' : 'Sign out' }}</ElButton
-          >
+          >{{ signingOut ? 'Signing out…' : 'Sign out' }}
+          </ElButton>
         </div>
         <p class="mt-4 text-xs text-slate-500">
           Signing out ends this session. Other devices stay signed in.

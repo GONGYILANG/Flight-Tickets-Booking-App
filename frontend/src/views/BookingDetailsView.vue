@@ -76,7 +76,8 @@ async function confirmCancel() {
       <ElSkeleton :rows="5" animated />
     </div>
     <div v-else-if="error && !booking" class="grid gap-4">
-      <ElAlert :title="error" type="error" :closable="false" role="alert" /><ElButton
+      <ElAlert :title="error" type="error" :closable="false" role="alert" />
+      <ElButton
         class="justify-self-start"
         @click="reload++"
         >Try again</ElButton
@@ -86,8 +87,9 @@ async function confirmCancel() {
       <RouterLink
         class="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:underline"
         to="/trips"
-        ><ArrowLeft :size="18" aria-hidden="true" />Back to my trips</RouterLink
       >
+        <ArrowLeft :size="18" aria-hidden="true" />Back to my trips
+      </RouterLink>
       <div class="flex flex-wrap items-center gap-4">
         <h1 class="text-2xl font-semibold tracking-tight break-all">
           Booking {{ booking.bookingReference }}
@@ -127,8 +129,9 @@ async function confirmCancel() {
           type="danger"
           plain
           @click="dialogOpen = true"
-          >Cancel booking</ElButton
         >
+          Cancel booking
+        </ElButton>
       </div>
       <section>
         <h2 class="mb-4 text-lg font-semibold">Itinerary</h2>
@@ -172,19 +175,20 @@ async function confirmCancel() {
         class="mt-4"
         role="alert"
       />
-      <template #footer
-        ><div class="flex flex-wrap justify-end gap-3">
-          <ElButton :disabled="cancelling" @click="dialogOpen = false">Keep booking</ElButton
-          ><ElButton
+      <template #footer>
+        <div class="flex flex-wrap justify-end gap-3">
+          <ElButton :disabled="cancelling" @click="dialogOpen = false">Keep booking
+          </ElButton>
+          <ElButton
             type="danger"
             :loading="cancelling"
             :loading-icon="LoaderCircle"
             :disabled="cancelling"
             @click="confirmCancel"
-            >{{ cancelling ? 'Cancelling…' : 'Cancel booking' }}</ElButton
-          >
-        </div></template
-      >
+          >{{ cancelling ? 'Cancelling…' : 'Cancel booking' }}
+          </ElButton>
+        </div>
+      </template>
     </ElDialog>
   </AppShell>
 </template>
