@@ -212,11 +212,12 @@ class ToolExecutorTests(unittest.TestCase):
             [("list_my_bookings", 3, 10, "jwt-secret")],
         )
 
-    def test_booking_key_is_stable_for_one_request_and_changes_for_next(self) -> None:
+    def test_booking_key_is_the_request_id_regardless_of_tool_arguments(self) -> None:
         arguments = json.dumps({"flight_id": FLIGHT_ID, "seat_count": 2})
+        changed_arguments = json.dumps({"flight_id": FLIGHT_ID, "seat_count": 3})
 
         first = self.executor.execute("create_booking", arguments, self.context)
-        second = self.executor.execute("create_booking", arguments, self.context)
+        second = self.executor.execute("create_booking", changed_arguments, self.context)
         next_context = resolution.RequestContext(
             access_token="jwt-secret", request_id=str(uuid.uuid4())
         )
@@ -227,9 +228,9 @@ class ToolExecutorTests(unittest.TestCase):
         self.assertTrue(third["ok"])
         keys = [call[3] for call in self.backend.calls]
         self.assertEqual(keys[0], keys[1])
+        self.assertEqual(keys[0], self.context.request_id)
         self.assertNotEqual(keys[0], keys[2])
-        for key in keys:
-            self.assertEqual(str(uuid.UUID(key)), key)
+        self.assertEqual(keys[2], next_context.request_id)
 
     def test_extra_model_field_is_rejected(self) -> None:
         result = self.executor.execute(

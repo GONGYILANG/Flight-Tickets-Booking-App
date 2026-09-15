@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta, timezone as datetime_timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -336,7 +336,7 @@ class BackendClient:
 
     def get_flight(self, flight_id: str) -> BackendResponse:
         return self._request(
-            "GET", f"/api/flights/{quote(flight_id, safe='')}"
+            "GET", f"/api/flights/{flight_id}"
         )
 
     def create_booking(
@@ -373,7 +373,7 @@ class BackendClient:
     ) -> BackendResponse:
         return self._request(
             "PATCH",
-            f"/api/bookings/{quote(booking_id, safe='')}/cancel",
+            f"/api/bookings/{booking_id}/cancel",
             json_body={},
             access_token=access_token,
         )
@@ -595,17 +595,8 @@ class ToolExecutor:
             canonical_request_id = str(uuid.UUID(context.request_id))
         except ValueError as error:
             raise ToolInputError("request_id must be a canonical UUID") from error
-        idempotency_key = str(
-            uuid.uuid5(
-                uuid.NAMESPACE_URL,
-                (
-                    f"flight-booking:{canonical_request_id}:"
-                    f"{flight_id}:{seat_count}"
-                ),
-            )
-        )
         response = self.backend.create_booking(
-            flight_id, seat_count, idempotency_key, access_token
+            flight_id, seat_count, canonical_request_id, access_token
         )
         return self._from_backend(response)
 

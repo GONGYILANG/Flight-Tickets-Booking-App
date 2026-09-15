@@ -1,7 +1,6 @@
  # Flight Booking Backend API Reference
 
-本文件描述当前 `backend/src` 实现的 HTTP API，供 Vue 前端、Android 客户端、Thunder Client 测试和 AI 中间层使用。
-
+本文件描述当前 `backend/src` 实现的 HTTP API。
 默认本地服务地址：
 
 ```text
