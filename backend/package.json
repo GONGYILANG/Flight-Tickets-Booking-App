@@ -15,7 +15,7 @@
     "reconcile:bookings": "node src/scripts/reconcileBookings.js",
     "reconcile:admin": "node src/scripts/reconcileAdminCancellations.js",
     "seed": "node src/scripts/seed.js",
-    "test": "node --test --test-concurrency=1"
+    "test": "node src/scripts/runTests.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "../src/scripts/testDatabase.js";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import "dotenv/config";
@@ -10,8 +11,6 @@ import {
   getDepartureWindow,
 } from "../src/services/flightService.js";
 import Flight from "../src/models/Flight.js";
-
-process.env.NODE_ENV = "test";
 
 const [{ default: app }, databaseModule] = await Promise.all([
   import("../src/app.js"),

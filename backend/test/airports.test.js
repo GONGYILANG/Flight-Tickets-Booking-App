@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
+import "../src/scripts/testDatabase.js";
 import { after, before, test } from "node:test";
 import "dotenv/config";
 import request from "supertest";
 import Airline from "../src/models/Airline.js";
-
-process.env.NODE_ENV = "test";
 
 const [{ default: app }, databaseModule] = await Promise.all([
   import("../src/app.js"),

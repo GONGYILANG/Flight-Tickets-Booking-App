@@ -1,23 +1,10 @@
 import assert from "node:assert/strict";
+import { developmentDatabaseName, testDatabaseName } from "../src/scripts/testDatabase.js";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import "dotenv/config";
 import jwt from "jsonwebtoken";
 import request from "supertest";
-
-const developmentDatabaseName = process.env.MONGODB_DB_NAME || "flightBookingDB";
-const testDatabaseName = process.env.MONGODB_TEST_DB_NAME?.trim();
-if (!testDatabaseName) {
-  throw new Error(
-    "MONGODB_TEST_DB_NAME is required; Admin tests never use the development database",
-  );
-}
-if (testDatabaseName.toLowerCase() === developmentDatabaseName.toLowerCase()) {
-  throw new Error("MONGODB_TEST_DB_NAME must be different from MONGODB_DB_NAME");
-}
-
-process.env.NODE_ENV = "test";
-process.env.MONGODB_DB_NAME = testDatabaseName;
 
 const [
   { default: app },

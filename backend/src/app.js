@@ -7,6 +7,7 @@ import authRoutes from "./routes/authRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
 import flightRoutes from "./routes/flightRoutes.js";
 import healthRoutes from "./routes/healthRoutes.js";
+import sessionRoutes from "./routes/sessionRoutes.js";
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use("/api/airports", airportRoutes);
 app.use("/api/airlines", airlineRoutes);
 app.use("/api/flights", flightRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/sessions", sessionRoutes);
 
 app.use((request, response) => {
   response.status(404).json({

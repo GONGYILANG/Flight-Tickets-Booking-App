@@ -1,84 +1,86 @@
- # Flight Booking Backend API Reference
+# Flight Booking Backend API Reference
 
-本文件描述当前 `backend/src` 实现的 HTTP API。
-默认本地服务地址：
+This document describes the HTTP API implemented in `backend/src`.
+
+The default local base URL is:
 
 ```text
 http://localhost:3000
 ```
 
-除健康检查外，所有 JSON 请求都应携带：
+Send the following header with JSON request bodies:
 
 ```http
 Content-Type: application/json
 ```
 
-## API 概览
+## API overview
 
-| 模块 | 方法 | 路径 | 需要登录 |
+| Area | Method | Path | Authentication |
 | --- | --- | --- | --- |
-| 健康检查 | `GET` | `/api/health` | 否 |
-| 认证 | `POST` | `/api/auth/register` | 否 |
-| 认证 | `POST` | `/api/auth/login` | 否 |
-| 认证 | `POST` | `/api/auth/logout` | 是 |
-| 认证 | `GET` | `/api/auth/me` | 是 |
-| 机场 | `GET` | `/api/airports/search` | 否 |
-| 航空公司 | `GET` | `/api/airlines` | 否 |
-| 航班 | `GET` | `/api/flights/search` | 否 |
-| 航班 | `GET` | `/api/flights/:flightId` | 否 |
-| 订单 | `POST` | `/api/bookings` | 是 |
-| 订单 | `GET` | `/api/bookings/me` | 是 |
-| 订单 | `GET` | `/api/bookings/:bookingId` | 是 |
-| 订单 | `PATCH` | `/api/bookings/:bookingId/cancel` | 是 |
-| 管理员 | `GET` | `/api/admin/users` | ADMIN |
-| 管理员 | `GET` | `/api/admin/users/:userId` | ADMIN |
-| 管理员 | `PATCH` | `/api/admin/users/:userId/status` | ADMIN |
-| 管理员 | `GET` | `/api/admin/bookings` | ADMIN |
-| 管理员 | `GET` | `/api/admin/bookings/:bookingId` | ADMIN |
-| 管理员 | `PATCH` | `/api/admin/bookings/:bookingId/cancel` | ADMIN |
-| 管理员 | `GET` | `/api/admin/flights` | ADMIN |
-| 管理员 | `GET` | `/api/admin/flights/:flightId` | ADMIN |
-| 管理员 | `PATCH` | `/api/admin/flights/:flightId/schedule` | ADMIN |
-| 管理员 | `PATCH` | `/api/admin/flights/:flightId` | ADMIN |
+| Health | `GET` | `/api/health` | No |
+| Authentication | `POST` | `/api/auth/register` | No |
+| Authentication | `POST` | `/api/auth/login` | No |
+| Authentication | `POST` | `/api/auth/logout` | Yes |
+| Authentication | `GET` | `/api/auth/me` | Yes |
+| Airports | `GET` | `/api/airports/search` | No |
+| Airlines | `GET` | `/api/airlines` | No |
+| Flights | `GET` | `/api/flights/search` | No |
+| Flights | `GET` | `/api/flights/:flightId` | No |
+| Bookings | `POST` | `/api/bookings` | Yes |
+| Bookings | `GET` | `/api/bookings/me` | Yes |
+| Bookings | `GET` | `/api/bookings/:bookingId` | Yes |
+| Bookings | `PATCH` | `/api/bookings/:bookingId/cancel` | Yes |
+| Sessions | `POST` | `/api/sessions` | Yes |
+| Sessions | `GET` | `/api/sessions` | Yes |
+| Sessions | `GET` | `/api/sessions/:sessionId` | Yes |
+| Sessions | `POST` | `/api/sessions/:sessionId/messages` | Yes |
+| Sessions | `DELETE` | `/api/sessions/:sessionId` | Yes |
+| Administration | `GET` | `/api/admin/users` | Admin |
+| Administration | `GET` | `/api/admin/users/:userId` | Admin |
+| Administration | `PATCH` | `/api/admin/users/:userId/status` | Admin |
+| Administration | `GET` | `/api/admin/bookings` | Admin |
+| Administration | `GET` | `/api/admin/bookings/:bookingId` | Admin |
+| Administration | `PATCH` | `/api/admin/bookings/:bookingId/cancel` | Admin |
+| Administration | `GET` | `/api/admin/flights` | Admin |
+| Administration | `GET` | `/api/admin/flights/:flightId` | Admin |
+| Administration | `PATCH` | `/api/admin/flights/:flightId/schedule` | Admin |
+| Administration | `PATCH` | `/api/admin/flights/:flightId` | Admin |
 
-## 通用约定
+## Common conventions
 
-### 认证
+### Authentication
 
-需要登录的端点使用 JWT Bearer Token：
+Protected endpoints require a JWT Bearer token:
 
 ```http
 Authorization: Bearer <accessToken>
 ```
 
-`accessToken` 由注册或登录接口返回，有效期默认为 **24 小时**（`JWT_EXPIRES_IN=24h`），不会因勾选 Remember me 而延长。缺少、过期、撤销或无效的 Token 会返回 `401`；被停用或锁定的用户会返回 `403`。
+The register and login endpoints issue `accessToken`. Its default lifetime is 24 hours (`JWT_EXPIRES_IN=24h`); selecting Remember me does not extend it. Missing, expired, revoked, or invalid tokens return `401`. Locked or disabled users return `403`.
 
-注册或登录成功前，服务端将返回给客户端的原始 JWT 字符串直接写入 `users.tokens` 数组，不做摘要。数组元素不含 `Bearer ` 前缀，例如 `tokens: ["<JWT from device A>", "<JWT from device B>"]`。每次签发都包含独立的随机 `jti`，因此同一用户同时登录也会获得不同 Token。
+The server stores each issued raw JWT in `users.tokens` without the `Bearer ` prefix. Every token has an independent random `jti`, so one user can remain signed in on multiple devices. A protected request must pass signature and expiry validation, the token must still be present in `users.tokens`, and the user must have `status=ACTIVE`.
 
-受保护请求必须同时通过 JWT 签名/有效期校验、Token 仍存在于该用户 `tokens` 数组的检查，以及用户 `ACTIVE` 状态检查。即使 Token 仍在数据库，超过其 `exp` 时间后也返回 `401 TOKEN_EXPIRED`。过期记录在下一次成功登录时清理；`tokens` 默认不查询、不出现在公开 User 或管理员响应中。
+`tokens` is excluded from normal User and administrator responses. The former `tokenVersion` field is not used; users holding older tokens that were never stored in `tokens` must sign in again.
 
-旧的 `tokenVersion` 不再参与认证。升级前签发、尚未存入 `tokens` 的 Token 不再被接受，需要重新登录；旧用户的 `tokens` 缺失时按空数组处理。
+### Time and time zones
 
-### 时间与时区
+- Response timestamps use ISO 8601 UTC strings, for example `2026-12-08T00:30:00.000Z`.
+- Flight `departureDate` is interpreted in the departure airport's local time zone.
+- Searches exclude flights whose departure time is not later than the current server time.
+- `MORNING` means local `00:00` inclusive through `12:00` exclusive.
+- `AFTERNOON` means local `12:00` inclusive through the next `00:00` exclusive.
 
-- 所有响应中的时间均为 ISO 8601 UTC 字符串，例如 `2026-12-08T00:30:00.000Z`。
-- 航班搜索中的 `departureDate` 是**出发机场当地日期**，并非 UTC 日期。
-- 航班搜索不会返回起飞时间小于或等于服务端当前时刻的航班。过去日期或已经结束的时段会正常返回空列表。
-- `departurePeriod` 也按出发机场的 IANA 时区解释：
-  - `MORNING`：当地 `00:00`（含）至 `12:00`（不含）；
-  - `AFTERNOON`：当地 `12:00`（含）至次日 `00:00`（不含）；
-  - 未传入：搜索该当地日期全天。
+### Money
 
-### 金额
+- The currency is USD.
+- Public amounts are fixed two-decimal strings such as `"325.00"` to avoid client floating-point errors.
+- `Flight.price` is the current price per seat.
+- `Booking.pricing` is the immutable price snapshot captured when the booking was created.
 
-- 币种固定为 USD。
-- API 中的金额使用固定两位小数的**字符串**，例如 `"325.00"`，以避免客户端浮点误差。
-- `Flight.price` 是当前航班的单座展示价。
-- `Booking.pricing` 是创建订单时保存的价格快照；航班之后调价不会改变已有订单的 `pricing`。
+### Pagination
 
-### 分页
-
-航班和订单列表均返回：
+Paginated endpoints return:
 
 ```json
 {
@@ -89,11 +91,11 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-页码从 `1` 开始。
+Page numbers start at `1`.
 
-### 通用错误格式
+### Error format
 
-错误响应统一使用：
+Error responses use:
 
 ```json
 {
@@ -112,9 +114,9 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-`details.fields` 只会在字段或查询参数校验失败时出现。
+`details.fields` is present only when body, path, or query validation fails.
 
-## 数据对象
+## Data objects
 
 ### User
 
@@ -128,8 +130,7 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-`status` 的可能值为 `ACTIVE`、`LOCKED`、`DISABLED`。
-`role` 的可能值为 `USER`、`ADMIN`；注册接口始终创建 `USER`。
+`status` is `ACTIVE`, `LOCKED`, or `DISABLED`. `role` is `USER` or `ADMIN`; registration always creates a `USER`.
 
 ### Airport
 
@@ -187,11 +188,9 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-航班 `status` 的可能值为 `SCHEDULED`、`DELAYED`、`CANCELLED`、`DEPARTED`、`ARRIVED`。只有尚未起飞且状态为 `SCHEDULED` 或 `DELAYED` 的航班可被预订。
+Flight status is `SCHEDULED`, `DELAYED`, `CANCELLED`, `DEPARTED`, or `ARRIVED`. Only future `SCHEDULED` and `DELAYED` flights can be booked.
 
-- `scheduledDepartureAt`、`scheduledArrivalAt` 是首次排班时间，航变后仍保持不变。
-- `departureAt`、`arrivalAt` 是当前生效时间，管理员航变会修改这两个字段。
-- 当前时间与首次排班不同时，`scheduleChanged=true`。客户端可同时展示原定与最新时间。
+`scheduledDepartureAt` and `scheduledArrivalAt` retain the original schedule. `departureAt` and `arrivalAt` contain the current effective schedule. `scheduleChanged` is true when the current schedule differs from the original one.
 
 ### Booking
 
@@ -199,7 +198,7 @@ Authorization: Bearer <accessToken>
 {
   "id": "66a1b2c3d4e5f67890123499",
   "bookingReference": "BK1A2B3C4D5E6",
-  "flight": { "...": "完整 Flight 对象" },
+  "flight": { "...": "full public Flight object" },
   "seatCount": 2,
   "pricing": {
     "unitAmount": "380.00",
@@ -215,17 +214,32 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-- `source`：`UI` 或 `AI`。
-- `status`：`CONFIRMED` 或 `CANCELLED`。
-- `flight` 是完整的公开 Flight 对象；不会返回用户 ID、密码、`idempotencyKey`、内部美分字段或 Mongoose 内部字段。
+`source` is `UI` or `AI`; `status` is `CONFIRMED` or `CANCELLED`. Public Booking objects omit the user ID, password data, `idempotencyKey`, internal cent values, and Mongoose fields.
 
-## 健康检查
+### Session
+
+```json
+{
+  "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
+  "createdAt": "2026-09-15T09:55:00.000Z",
+  "updatedAt": "2026-09-15T10:00:00.000Z",
+  "lastAccess": "2026-09-15T10:00:00.000Z",
+  "history": [
+    { "role": "user", "content": "Find a flight from PEK to HKG tomorrow." },
+    { "role": "assistant", "content": "I found one matching flight." }
+  ]
+}
+```
+
+`history` is one flat, ordered array of JSON-compatible model messages with roles `system`, `user`, `assistant`, or `tool`. It can include assistant tool calls and their tool responses. Do not place authentication tokens in model messages. Sessions are retained until explicitly deleted; `lastAccess` has no TTL index. Responses never expose the owning user ID.
+
+## Health API
 
 ### `GET /api/health`
 
-检查 HTTP 服务与 MongoDB 连接状态，无需认证。
+Checks the HTTP service and MongoDB connection. Authentication is not required.
 
-成功时返回 `200`：
+Successful response (`200`):
 
 ```json
 {
@@ -239,15 +253,15 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-数据库不可用时返回 `503`，`status` 为 `"unavailable"`。
+An unavailable database returns `503` with `status="unavailable"`.
 
-## 认证 API
+## Authentication API
 
 ### `POST /api/auth/register`
 
-创建用户并立即返回登录 Token，无需认证。
+Creates a user and immediately returns an access token. Authentication is not required.
 
-请求体：
+Request body:
 
 ```json
 {
@@ -257,13 +271,13 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-| 字段 | 必填 | 规则 |
+| Field | Required | Rules |
 | --- | --- | --- |
-| `email` | 是 | 合法邮箱格式；会去除首尾空格并转为小写；最多 320 个字符。 |
-| `password` | 是 | UTF-8 字节长度为 8–72。 |
-| `displayName` | 是 | 去除首尾空格后长度为 2–120。 |
+| `email` | Yes | Valid email, trimmed and lowercased, maximum 320 characters. |
+| `password` | Yes | UTF-8 byte length from 8 to 72. |
+| `displayName` | Yes | Trimmed length from 2 to 120. |
 
-成功返回 `201`：
+Successful response (`201`):
 
 ```json
 {
@@ -282,16 +296,11 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-常见错误：
-
-- `400 INVALID_REQUEST`：字段缺失或不符合规则。
-- `409 EMAIL_ALREADY_REGISTERED`：邮箱已注册。
+Common errors are `400 INVALID_REQUEST` and `409 EMAIL_ALREADY_REGISTERED`.
 
 ### `POST /api/auth/login`
 
-使用邮箱和密码登录，无需认证。
-
-请求体：
+Signs in with email and password. Authentication is not required.
 
 ```json
 {
@@ -300,33 +309,17 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-字段规则与注册接口中的 `email`、`password` 相同。
-
-成功返回 `200`，`data` 格式与注册接口完全相同。
-
-常见错误：
-
-- `400 INVALID_REQUEST`：字段缺失或格式不正确。
-- `401 INVALID_CREDENTIALS`：邮箱不存在或密码错误。
-- `403 ACCOUNT_NOT_ACTIVE`：用户不是 `ACTIVE` 状态。
+The successful `200` response has the same `data` shape as registration. Common errors are `400 INVALID_REQUEST`, `401 INVALID_CREDENTIALS`, and `403 ACCOUNT_NOT_ACTIVE`.
 
 ### `POST /api/auth/logout`
 
-认证：需要 Bearer Token。无需请求体，成功返回 `204 No Content`。
+Requires authentication and no request body. A successful logout returns `204 No Content`.
 
-服务端通过 `$pull` 从当前用户的 `tokens` 数组中原子删除请求携带的**当前 Token**，其他设备的 Token 继续有效。之后使用该 Token 访问 `/api/auth/me`、订单或管理员接口时返回 `401 TOKEN_REVOKED`。注销后的重复请求同样返回 `401`，客户端应视为已经退出。
-
-前端在成功或认证失效后清除本地 Token、待确认预订和聊天记录。网络错误或 `5xx` 不应被当作服务端注销成功，应保留可重试状态。
-
-登录追加 Token、注销删除 Token 都使用数据库原子数组操作，避免并发登录或注销时覆盖其他会话。当前没有自动续期：满 24 小时后重新登录会生成并保存新的 Token。
+The server atomically removes only the current raw token from `users.tokens`; tokens issued to other devices remain valid. Reusing the removed token returns `401 TOKEN_REVOKED`.
 
 ### `GET /api/auth/me`
 
-读取当前登录用户。
-
-认证：需要 Bearer Token。
-
-成功返回 `200`：
+Returns the authenticated user.
 
 ```json
 {
@@ -342,26 +335,22 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-## 机场 API
+## Airport API
 
 ### `GET /api/airports/search`
 
-按 IATA 代码、机场名称或城市名称搜索机场。出发地和目的地输入框共用此接口；用户最终应选择一个具体机场代码。
+Searches by IATA code, airport name, or city name.
 
-查询参数：
-
-| 参数 | 必填 | 默认值 | 规则 |
+| Parameter | Required | Default | Rules |
 | --- | --- | --- | --- |
-| `q` | 是 | — | 1–80 个字符；不区分大小写。 |
-| `limit` | 否 | `10` | 整数，范围 `1–20`。 |
-
-示例：
+| `q` | Yes | — | 1–80 characters, case-insensitive. |
+| `limit` | No | `10` | Integer from 1 to 20. |
 
 ```http
 GET /api/airports/search?q=beijing&limit=10
 ```
 
-成功返回 `200`：
+Successful response (`200`):
 
 ```json
 {
@@ -374,27 +363,19 @@ GET /api/airports/search?q=beijing&limit=10
         "cityName": "Beijing",
         "countryCode": "CN",
         "timezone": "Asia/Shanghai"
-      },
-      {
-        "id": "66a1b2c3d4e5f67890120004",
-        "iataCode": "PKX",
-        "name": "Beijing Daxing International Airport",
-        "cityName": "Beijing",
-        "countryCode": "CN",
-        "timezone": "Asia/Shanghai"
       }
     ]
   }
 }
 ```
 
-结果会优先排列完全匹配的 IATA 代码、IATA 前缀、城市完全匹配、城市前缀和机场名前缀。参数不合法时返回 `400 INVALID_REQUEST`。
+Results rank exact IATA matches first, followed by IATA prefixes, exact city matches, city prefixes, and airport name prefixes. Invalid parameters return `400 INVALID_REQUEST`.
 
-## 航空公司 API
+## Airline API
 
 ### `GET /api/airlines`
 
-无需认证和查询参数。返回所有 `active=true` 的航空公司，仅包含公开的 `code`、`name`，按名称及代码稳定排列：
+Returns all airlines with `active=true`, ordered by name and code. Authentication and query parameters are not required.
 
 ```json
 {
@@ -407,81 +388,38 @@ GET /api/airports/search?q=beijing&limit=10
 }
 ```
 
-筛选抽屉使用此接口，不再从某一页航班推导航空公司选项。该列表是启用中的航空公司目录，不保证每家公司在当前路线、日期都有航班；实际结果仍由航班搜索确定。
+The list is a directory of enabled airlines and does not guarantee that an airline operates on a particular route or date.
 
-## 航班 API
+## Flight API
 
 ### `GET /api/flights/search`
 
-按具体出发机场、到达机场和出发日期搜索可预订的直飞航班。搜索结果只包含 `SCHEDULED` 或 `DELAYED` 状态、且余票不少于 `passengers` 的航班。
+Searches bookable direct flights by exact departure airport, destination airport, and local departure date. Results contain only future `SCHEDULED` or `DELAYED` flights with at least the requested number of seats.
 
-查询参数：
-
-| 参数 | 必填 | 默认值 | 规则 |
+| Parameter | Required | Default | Rules |
 | --- | --- | --- | --- |
-| `origin` | 是 | — | 三位 IATA 机场代码，例如 `PEK`。自动转为大写。 |
-| `destination` | 是 | — | 三位 IATA 机场代码，例如 `HKG`；不可与 `origin` 相同。 |
-| `departureDate` | 是 | — | 有效日期，格式 `YYYY-MM-DD`；按出发机场当地日期解释。 |
-| `departurePeriod` | 否 | `null` | `MORNING`、`AFTERNOON`；不传则搜索全天。自动转为大写。 |
-| `airlineCode` | 否 | `null` | 2–3 位航空公司代码，例如 `CX`；必须对应一个启用中的航空公司。自动转为大写。 |
-| `passengers` | 否 | `1` | 整数，范围 `1–9`；结果必须有足够余票。 |
-| `page` | 否 | `1` | 整数，范围 `1–10000`。 |
-| `limit` | 否 | `20` | 整数，范围 `1–50`。 |
-| `sortBy` | 否 | `departureAt` | `departureAt`、`arrivalAt`、`availableSeats` 或 `price`。 |
-| `sortOrder` | 否 | `asc` | `asc` 或 `desc`；不区分大小写。 |
-
-价格排序中的公开参数 `sortBy=price` 会在数据库中按内部美分字段排序，但 API 不会暴露该内部字段。相同排序值会使用航班 ID 作为稳定的次级排序条件。
-
-示例：
+| `origin` | Yes | — | Three-letter IATA code, uppercased. |
+| `destination` | Yes | — | Three-letter IATA code, different from `origin`. |
+| `departureDate` | Yes | — | Valid `YYYY-MM-DD` date in the origin airport's time zone. |
+| `departurePeriod` | No | `null` | `MORNING` or `AFTERNOON`. |
+| `airlineCode` | No | `null` | Enabled two- or three-character airline code. |
+| `passengers` | No | `1` | Integer from 1 to 9. |
+| `page` | No | `1` | Integer from 1 to 10000. |
+| `limit` | No | `20` | Integer from 1 to 50. |
+| `sortBy` | No | `departureAt` | `departureAt`, `arrivalAt`, `availableSeats`, or `price`. |
+| `sortOrder` | No | `asc` | `asc` or `desc`. |
 
 ```http
 GET /api/flights/search?origin=PEK&destination=HKG&departureDate=2026-12-08&departurePeriod=MORNING&airlineCode=CX&passengers=2&sortBy=price&sortOrder=asc&page=1&limit=20
 ```
 
-成功返回 `200`：
+Successful response (`200`):
 
 ```json
 {
   "data": {
     "flights": [
-      {
-        "id": "66a1b2c3d4e5f67890123456",
-        "flightNumber": "CX101",
-        "airline": {
-          "id": "66a1b2c3d4e5f67890120001",
-          "code": "CX",
-          "name": "Cathay Pacific"
-        },
-        "originAirport": {
-          "id": "66a1b2c3d4e5f67890120002",
-          "iataCode": "PEK",
-          "name": "Beijing Capital International Airport",
-          "cityName": "Beijing",
-          "countryCode": "CN",
-          "timezone": "Asia/Shanghai"
-        },
-        "destinationAirport": {
-          "id": "66a1b2c3d4e5f67890120003",
-          "iataCode": "HKG",
-          "name": "Hong Kong International Airport",
-          "cityName": "Hong Kong",
-          "countryCode": "HK",
-          "timezone": "Asia/Hong_Kong"
-        },
-        "departureAt": "2026-12-08T00:30:00.000Z",
-        "arrivalAt": "2026-12-08T04:00:00.000Z",
-        "scheduledDepartureAt": "2026-12-08T00:30:00.000Z",
-        "scheduledArrivalAt": "2026-12-08T04:00:00.000Z",
-        "scheduleChanged": false,
-        "durationMinutes": 210,
-        "price": {
-          "amount": "380.00",
-          "currency": "USD"
-        },
-        "totalSeats": 180,
-        "availableSeats": 42,
-        "status": "SCHEDULED"
-      }
+      { "...": "full public Flight object" }
     ],
     "pagination": {
       "page": 1,
@@ -504,47 +442,33 @@ GET /api/flights/search?origin=PEK&destination=HKG&departureDate=2026-12-08&depa
 }
 ```
 
-常见错误：
-
-- `400 INVALID_REQUEST`：参数格式不正确、出发地和目的地相同、机场不存在，或 `airlineCode` 不是启用中的航空公司。
-- 有效路线当天没有航班时仍返回 `200`，其中 `flights` 是空数组、`totalItems` 为 `0`。
+Invalid input, unknown airports, or an unknown airline return `400 INVALID_REQUEST`. A valid search with no matching flights returns `200` with an empty array.
 
 ### `GET /api/flights/:flightId`
 
-按 MongoDB ObjectId 获取单个航班的完整公开信息。
-
-示例：
+Returns one public Flight object by MongoDB ObjectId.
 
 ```http
 GET /api/flights/66a1b2c3d4e5f67890123456
 ```
 
-成功返回 `200`：
-
 ```json
 {
   "data": {
-    "flight": { "...": "完整 Flight 对象" }
+    "flight": { "...": "full public Flight object" }
   }
 }
 ```
 
-错误：
+An invalid ID returns `400 INVALID_REQUEST`; an unknown flight returns `404 FLIGHT_NOT_FOUND`.
 
-- `400 INVALID_REQUEST`：`flightId` 不是有效 ObjectId。
-- `404 FLIGHT_NOT_FOUND`：航班不存在。
+## Booking API
 
-## 订单 API
-
-所有订单接口都只操作当前 Bearer Token 对应用户的订单；客户端不能通过请求体指定用户。
+Booking endpoints operate only on the user identified by the Bearer token. A client cannot select a user in the request body.
 
 ### `POST /api/bookings`
 
-创建一张模拟机票订单，并原子扣减航班余票。
-
-认证：需要 Bearer Token。
-
-请求体：
+Creates a simulated booking and atomically decrements available seats.
 
 ```json
 {
@@ -555,42 +479,21 @@ GET /api/flights/66a1b2c3d4e5f67890123456
 }
 ```
 
-| 字段 | 必填 | 默认值 | 规则 |
+| Field | Required | Default | Rules |
 | --- | --- | --- | --- |
-| `flightId` | 是 | — | 有效 MongoDB ObjectId。 |
-| `seatCount` | 否 | `1` | 整数，范围 `1–9`。 |
-| `source` | 否 | `UI` | `UI` 或 `AI`；会去除空格并转为大写。 |
-| `idempotencyKey` | 是 | — | 规范 UUID；会去除空格并转为小写。 |
+| `flightId` | Yes | — | Valid MongoDB ObjectId. |
+| `seatCount` | No | `1` | Integer from 1 to 9. |
+| `source` | No | `UI` | `UI` or `AI`, trimmed and uppercased. |
+| `idempotencyKey` | Yes | — | Canonical UUID, trimmed and lowercased. |
 
-`idempotencyKey` 用于将网络重试、重复点击或 AI 重试识别为同一逻辑预订：
+The same user and key with the same `flightId`, `seatCount`, and `source` returns the original booking without decrementing seats again. Reusing the key with different payload fields returns `409 IDEMPOTENCY_KEY_CONFLICT`. Different users may use the same UUID.
 
-- 同一用户、相同 key、相同 `flightId`、`seatCount`、`source`：不会重复扣座，直接返回首次创建的订单。
-- 同一用户、相同 key、但上述任一请求内容不同：返回 `409 IDEMPOTENCY_KEY_CONFLICT`。
-- 不同用户可以使用相同 UUID。
-- 客户端在同一次预订的超时或重试中必须复用原 UUID；开始一次新的预订才生成新 UUID。
-
-首次创建成功返回 `201`：
+Initial creation returns `201`:
 
 ```json
 {
   "data": {
-    "booking": {
-      "id": "66a1b2c3d4e5f67890123499",
-      "bookingReference": "BK1A2B3C4D5E6",
-      "flight": { "...": "完整 Flight 对象" },
-      "seatCount": 2,
-      "pricing": {
-        "unitAmount": "380.00",
-        "totalAmount": "760.00",
-        "currency": "USD"
-      },
-      "source": "UI",
-      "status": "CONFIRMED",
-      "cancellation": null,
-      "createdAt": "2026-08-24T10:00:00.000Z",
-      "updatedAt": "2026-08-24T10:00:00.000Z",
-      "cancelledAt": null
-    }
+    "booking": { "...": "full public Booking object" }
   },
   "meta": {
     "idempotentReplay": false
@@ -598,56 +501,26 @@ GET /api/flights/66a1b2c3d4e5f67890123456
 }
 ```
 
-幂等重放成功返回 `200`，`data.booking` 为同一张订单，且：
+An idempotent replay returns `200` with the same booking and `meta.idempotentReplay=true`.
 
-```json
-{
-  "meta": {
-    "idempotentReplay": true
-  }
-}
-```
+A flight must exist, be in the future, have status `SCHEDULED` or `DELAYED`, and have `availableSeats >= seatCount`.
 
-可预订条件：航班存在、尚未起飞、状态为 `SCHEDULED` 或 `DELAYED`，且 `availableSeats >= seatCount`。
-
-常见错误：
-
-- `400 INVALID_REQUEST`：请求体或字段不合法。
-- `401 AUTH_REQUIRED`、`INVALID_TOKEN`、`TOKEN_EXPIRED`、`TOKEN_REVOKED`：未通过认证。
-- `409 FLIGHT_NOT_FOUND_OR_SOLD_OUT`：航班不存在、已起飞、状态不可预订或余票不足。
-- `409 IDEMPOTENCY_KEY_CONFLICT`：同一用户复用了 key，但请求内容不同。
-- `503 BOOKING_WRITES_PAUSED`：维护期间暂停创建和取消订单。
-- `500 BOOKING_CREATION_FAILED` 或 `BOOKING_CONSISTENCY_ERROR`：服务端无法安全完成或补偿订单写入；客户端不应擅自更换 UUID，应先查询订单或使用原 UUID 重试。
+Common errors include `400 INVALID_REQUEST`, authentication errors, `409 FLIGHT_NOT_FOUND_OR_SOLD_OUT`, `409 IDEMPOTENCY_KEY_CONFLICT`, `503 BOOKING_WRITES_PAUSED`, and consistency-related `500` errors.
 
 ### `GET /api/bookings/me`
 
-获取当前用户的订单，不返回其他用户的订单。
+Returns the current user's bookings ordered by `createdAt DESC, _id DESC`.
 
-认证：需要 Bearer Token。
-
-查询参数：
-
-| 参数 | 必填 | 默认值 | 规则 |
+| Parameter | Required | Default | Rules |
 | --- | --- | --- | --- |
-| `page` | 否 | `1` | 整数，范围 `1–10000`。 |
-| `limit` | 否 | `20` | 整数，范围 `1–50`。 |
-
-结果按 `createdAt DESC, _id DESC` 稳定排序；当前版本不提供状态筛选。
-
-示例：
-
-```http
-GET /api/bookings/me?page=1&limit=20
-Authorization: Bearer <accessToken>
-```
-
-成功返回 `200`：
+| `page` | No | `1` | Integer from 1 to 10000. |
+| `limit` | No | `20` | Integer from 1 to 50. |
 
 ```json
 {
   "data": {
     "bookings": [
-      { "...": "完整 Booking 对象" }
+      { "...": "full public Booking object" }
     ],
     "pagination": {
       "page": 1,
@@ -661,62 +534,30 @@ Authorization: Bearer <accessToken>
 
 ### `GET /api/bookings/:bookingId`
 
-读取当前用户的一张订单，适用于订单详情页、通知跳转和 AI 精确复核。
-
-认证：需要 Bearer Token。`bookingId` 必须是有效 MongoDB ObjectId。
-
-成功返回 `200`：
+Returns one booking owned by the authenticated user. Invalid IDs return `400 INVALID_REQUEST`. Missing bookings and bookings belonging to another user both return `404 BOOKING_NOT_FOUND`.
 
 ```json
 {
   "data": {
-    "booking": { "...": "完整 Booking 对象" }
+    "booking": { "...": "full public Booking object" }
   }
 }
 ```
 
-- 只能读取当前 Token 所属用户的订单。
-- 订单不存在或属于其他用户时统一返回 `404 BOOKING_NOT_FOUND`，避免泄露其他用户的订单是否存在。
-- 响应不包含用户 ID、`idempotencyKey`、内部价格快照字段或 Mongoose 内部字段。
-
 ### `PATCH /api/bookings/:bookingId/cancel`
 
-取消当前用户的一张订单，并恢复相应座位数。
-
-认证：需要 Bearer Token。
-
-`bookingId` 必须是有效 MongoDB ObjectId。
-
-只有满足以下条件的 `CONFIRMED` 订单可被首次取消：
-
-- 订单属于当前用户；
-- 对应航班尚未起飞；
-- 航班状态为 `SCHEDULED` 或 `DELAYED`。
-
-首次取消成功返回 `200`：
+Cancels a confirmed booking owned by the current user and restores its seats. The flight must still be a future `SCHEDULED` or `DELAYED` flight. No request body is required.
 
 ```json
 {
   "data": {
     "booking": {
-      "id": "66a1b2c3d4e5f67890123499",
-      "bookingReference": "BK1A2B3C4D5E6",
-      "flight": { "...": "完整 Flight 对象" },
-      "seatCount": 2,
-      "pricing": {
-        "unitAmount": "380.00",
-        "totalAmount": "760.00",
-        "currency": "USD"
-      },
-      "source": "UI",
+      "...": "full public Booking object",
       "status": "CANCELLED",
       "cancellation": {
         "source": "USER",
         "reason": null
-      },
-      "createdAt": "2026-08-24T10:00:00.000Z",
-      "updatedAt": "2026-08-24T10:05:00.000Z",
-      "cancelledAt": "2026-08-24T10:05:00.000Z"
+      }
     }
   },
   "meta": {
@@ -725,63 +566,67 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-重复取消相同订单仍返回 `200` 与同一订单，但：
+Repeated or concurrent cancellation returns the same booking with `meta.alreadyCancelled=true` and never restores seats twice.
+
+Common errors include `400 INVALID_REQUEST`, `404 BOOKING_NOT_FOUND`, `409 BOOKING_NOT_CANCELLABLE`, `503 BOOKING_WRITES_PAUSED`, and `500 BOOKING_CONSISTENCY_ERROR`.
+
+## Session API
+
+Session endpoints require authentication and always scope records to `request.user._id`. The owning user ID is never accepted from a request body or exposed in a response.
+
+Sessions do not expire automatically. Existing messages are append-only: the API provides no endpoint for editing or deleting an individual message. The backend does not store HTTP retry replies or request IDs in Session records; the AI middle layer keeps its short-lived reply cache separately.
+
+### `POST /api/sessions`
+
+Creates an empty permanent session.
 
 ```json
 {
-  "meta": {
-    "alreadyCancelled": true
-  }
+  "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279"
 }
 ```
 
-重复取消不会第二次恢复座位。
+`sessionId` is required and must be a canonical UUID. It is globally unique.
 
-常见错误：
-
-- `400 INVALID_REQUEST`：`bookingId` 不合法。
-- `404 BOOKING_NOT_FOUND`：订单不存在，或不属于当前用户。
-- `409 BOOKING_NOT_CANCELLABLE`：订单当前不可取消，例如航班已起飞或状态不可预订。
-- `503 BOOKING_WRITES_PAUSED`：维护期间暂停取消。
-- `500 BOOKING_CONSISTENCY_ERROR`：服务端无法确认库存恢复或回滚结果，需要维护处理。
-
-## 管理员 API
-
-管理员继续使用 `POST /api/auth/login` 登录。所有 `/api/admin/*` 请求都必须携带 Bearer Token，且数据库中的当前用户必须同时满足：
-
-```text
-status = ACTIVE
-role = ADMIN
-```
-
-普通用户访问管理接口返回 `403 ADMIN_REQUIRED`。管理员权限以数据库当前值为准，角色撤销或账号锁定后，已签发的 Token 也会立即失去管理权限。
-
-### `GET /api/admin/users`
-
-查询所有注册用户。
-
-| 参数 | 必填 | 默认值 | 规则 |
-| --- | --- | --- | --- |
-| `q` | 否 | — | 按邮箱或昵称进行不区分大小写的包含匹配，1–100 个字符。 |
-| `status` | 否 | — | `ACTIVE`、`LOCKED`、`DISABLED`。 |
-| `role` | 否 | — | `USER`、`ADMIN`。 |
-| `page` | 否 | `1` | 整数，范围 `1–10000`。 |
-| `limit` | 否 | `20` | 整数，范围 `1–50`。 |
-
-结果按 `createdAt DESC, _id DESC` 排序：
+Initial creation returns `201`:
 
 ```json
 {
   "data": {
-    "users": [
+    "session": {
+      "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
+      "createdAt": "2026-09-15T09:55:00.000Z",
+      "updatedAt": "2026-09-15T09:55:00.000Z",
+      "lastAccess": "2026-09-15T09:55:00.000Z",
+      "history": []
+    }
+  },
+  "meta": {
+    "alreadyExists": false
+  }
+}
+```
+
+Repeating the request as the same user returns `200` with the existing session and `meta.alreadyExists=true`. If another user already owns that globally unique ID, the response is `409 SESSION_ID_CONFLICT`.
+
+### `GET /api/sessions`
+
+Lists the current user's sessions, ordered by `lastAccess DESC, _id DESC`. List entries omit `history`.
+
+| Parameter | Required | Default | Rules |
+| --- | --- | --- | --- |
+| `page` | No | `1` | Integer from 1 to 10000. |
+| `limit` | No | `20` | Integer from 1 to 50. |
+
+```json
+{
+  "data": {
+    "sessions": [
       {
-        "id": "66a1b2c3d4e5f67890123456",
-        "email": "student@example.com",
-        "displayName": "Student",
-        "status": "ACTIVE",
-        "role": "USER",
-        "createdAt": "2026-08-24T10:00:00.000Z",
-        "updatedAt": "2026-08-24T10:00:00.000Z"
+        "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
+        "createdAt": "2026-09-15T09:55:00.000Z",
+        "updatedAt": "2026-09-15T10:00:00.000Z",
+        "lastAccess": "2026-09-15T10:00:00.000Z"
       }
     ],
     "pagination": {
@@ -794,14 +639,72 @@ role = ADMIN
 }
 ```
 
-### `GET /api/admin/users/:userId`
+### `GET /api/sessions/:sessionId`
 
-读取一个用户及其订单数量摘要：
+Returns the current user's session with its complete `history`. Reading the session updates `lastAccess`. An invalid UUID returns `400 INVALID_REQUEST`; a missing session or another user's session returns `404 SESSION_NOT_FOUND`.
 
 ```json
 {
   "data": {
-    "user": { "...": "管理员 User DTO" },
+    "session": { "...": "full Session object" }
+  }
+}
+```
+
+### `POST /api/sessions/:sessionId/messages`
+
+Atomically appends a batch of ordered messages to `history` without changing earlier messages.
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "Find a flight from PEK to HKG tomorrow." },
+    { "role": "assistant", "content": "I found one matching flight." }
+  ]
+}
+```
+
+`messages` must contain 1–100 JSON objects, each with a `role` of `system`, `user`, `assistant`, or `tool`. Successful append returns `204 No Content`. Messages within a batch remain consecutive even when other clients append concurrently. This endpoint does not deduplicate repeated batches.
+
+### `DELETE /api/sessions/:sessionId`
+
+Permanently deletes the current user's session and all its history. It returns `204 No Content`. Deleting a missing session or another user's session is also a harmless `204` and does not reveal whether that session exists.
+
+There are no `PATCH` or `PUT` Session endpoints. A client that needs to correct a conversation must append new messages or create a new session.
+
+## Administration API
+
+Administrators sign in through `POST /api/auth/login`. Every `/api/admin/*` request requires a current user with:
+
+```text
+status = ACTIVE
+role = ADMIN
+```
+
+Normal users receive `403 ADMIN_REQUIRED`. Authorization uses the user's current database state, so locking an account or removing its role immediately removes access from already issued tokens.
+
+### `GET /api/admin/users`
+
+Lists registered users.
+
+| Parameter | Required | Default | Rules |
+| --- | --- | --- | --- |
+| `q` | No | — | Case-insensitive email or display-name substring, 1–100 characters. |
+| `status` | No | — | `ACTIVE`, `LOCKED`, or `DISABLED`. |
+| `role` | No | — | `USER` or `ADMIN`. |
+| `page` | No | `1` | Integer from 1 to 10000. |
+| `limit` | No | `20` | Integer from 1 to 50. |
+
+Results are ordered by `createdAt DESC, _id DESC` and include pagination.
+
+### `GET /api/admin/users/:userId`
+
+Returns one administrator User DTO, its latest status change, and booking counts:
+
+```json
+{
+  "data": {
+    "user": { "...": "administrator User object" },
     "statusChange": null,
     "bookingSummary": {
       "total": 10,
@@ -812,11 +715,11 @@ role = ADMIN
 }
 ```
 
-用户不存在时返回 `404 USER_NOT_FOUND`。
+An unknown user returns `404 USER_NOT_FOUND`.
 
 ### `PATCH /api/admin/users/:userId/status`
 
-锁定、停用或恢复用户：
+Locks, disables, or reactivates a user:
 
 ```json
 {
@@ -825,14 +728,11 @@ role = ADMIN
 }
 ```
 
-- `reason` 去除首尾空格后必须为 3–500 个字符。
-- 任何当前为 `ACTIVE` 的管理员都不能通过此接口被锁定或停用，包括操作者本人。
-- 相同状态重放返回 `meta.changed=false`。
-- 接口不能修改邮箱、昵称、密码或角色。
+`reason` must contain 3–500 trimmed characters. An active administrator cannot lock or disable themselves or another administrator. Replaying the current state returns `meta.changed=false`. This endpoint cannot change email, display name, password, or role.
 
 ### `GET /api/admin/bookings`
 
-查询全部用户订单。支持：
+Lists all users' bookings. Supported filters are:
 
 ```text
 userId
@@ -840,35 +740,21 @@ flightId
 bookingReference
 status          CONFIRMED | CANCELLED
 source          UI | AI
-createdFrom     ISO 8601 时间
-createdTo       ISO 8601 时间
+createdFrom     ISO 8601 timestamp
+createdTo       ISO 8601 timestamp
 page
 limit
 ```
 
-结果按 `createdAt DESC, _id DESC` 排序。每个管理员 Booking DTO 在普通 Booking DTO 基础上增加：
-
-```json
-{
-  "user": {
-    "id": "66a1b2c3d4e5f67890123456",
-    "email": "student@example.com",
-    "displayName": "Student",
-    "status": "ACTIVE",
-    "role": "USER"
-  }
-}
-```
-
-取消订单还会在 `cancellation.cancelledBy` 中返回取消操作者的安全用户摘要。响应不会包含 `idempotencyKey`、`priceSnapshot` 或 `passwordHash`。
+Results are ordered by `createdAt DESC, _id DESC`. Each administrator Booking object adds a safe user summary to the normal Booking object. It omits `idempotencyKey`, `priceSnapshot`, and password data.
 
 ### `GET /api/admin/bookings/:bookingId`
 
-返回单个管理员 Booking DTO。不存在时返回 `404 BOOKING_NOT_FOUND`。
+Returns one administrator Booking object. An unknown booking returns `404 BOOKING_NOT_FOUND`.
 
 ### `PATCH /api/admin/bookings/:bookingId/cancel`
 
-管理员代用户取消尚未起飞航班的确认订单：
+Cancels a confirmed booking on a future `SCHEDULED` or `DELAYED` flight:
 
 ```json
 {
@@ -876,48 +762,42 @@ limit
 }
 ```
 
-- 订单必须为 `CONFIRMED`，航班必须为未来的 `SCHEDULED/DELAYED` 航班。
-- 首次取消写入 `cancellation.source=ADMIN` 并恢复座位。
-- 重复或并发取消不会再次恢复座位，返回 `meta.alreadyCancelled=true`。
-- 不支持重新确认、编辑、删除或代创建订单。
+The first cancellation sets `cancellation.source=ADMIN` and restores seats. Repeated or concurrent requests return `meta.alreadyCancelled=true` without restoring seats again. Reconfirmation, editing, deletion, and booking creation on behalf of a user are not supported.
 
 ### `GET /api/admin/flights`
 
-查询全部航班，包括公共搜索不会列出的 `CANCELLED`、`DEPARTED`、`ARRIVED` 和过去航班。
+Lists all flights, including past and `CANCELLED`, `DEPARTED`, or `ARRIVED` flights.
 
-| 参数 | 必填 | 默认值 | 规则 |
+| Parameter | Required | Default | Rules |
 | --- | --- | --- | --- |
-| `flightNumber` | 否 | — | 2–12 位字母或数字，精确匹配。 |
-| `airlineCode` | 否 | — | 2–3 位航空公司代码，必须存在。 |
-| `origin` | 否 | — | 三位 IATA 机场代码，必须存在。 |
-| `destination` | 否 | — | 三位 IATA 机场代码，不能与 `origin` 相同。 |
-| `status` | 否 | — | 任一合法航班状态。 |
-| `departureFrom` | 否 | — | ISO 8601 时间，包含该边界。 |
-| `departureTo` | 否 | — | ISO 8601 时间，包含该边界且不得早于 `departureFrom`。 |
-| `page` | 否 | `1` | 整数，范围 `1–10000`。 |
-| `limit` | 否 | `20` | 整数，范围 `1–50`。 |
-| `sortBy` | 否 | `departureAt` | `departureAt`、`arrivalAt`、`availableSeats`、`price`、`createdAt`。 |
-| `sortOrder` | 否 | `asc` | `asc` 或 `desc`。 |
+| `flightNumber` | No | — | Exact 2–12 character alphanumeric value. |
+| `airlineCode` | No | — | Existing two- or three-character airline code. |
+| `origin` | No | — | Existing three-letter IATA code. |
+| `destination` | No | — | Existing IATA code, different from `origin`. |
+| `status` | No | — | Any valid flight status. |
+| `departureFrom` | No | — | Inclusive ISO 8601 timestamp. |
+| `departureTo` | No | — | Inclusive ISO 8601 timestamp not before `departureFrom`. |
+| `page` | No | `1` | Integer from 1 to 10000. |
+| `limit` | No | `20` | Integer from 1 to 50. |
+| `sortBy` | No | `departureAt` | `departureAt`, `arrivalAt`, `availableSeats`, `price`, or `createdAt`. |
+| `sortOrder` | No | `asc` | `asc` or `desc`. |
 
-结果使用所选字段和 `_id` 进行稳定排序，每个元素都是管理员 Flight DTO，但列表不包含完整航变历史。
+Results use the selected field and `_id` for stable ordering. List entries omit full schedule-change history.
 
 ### `GET /api/admin/flights/:flightId`
 
-读取一个管理员 Flight DTO。除公开 Flight 字段外，还会返回价格美分、状态操作审计、航变版本和完整航变历史：
+Returns an administrator Flight object. In addition to public Flight fields it includes `priceCents`, status audit fields, `scheduleVersion`, and complete schedule history:
 
 ```json
 {
   "data": {
     "flight": {
-      "...": "公开 Flight 字段",
+      "...": "public Flight fields",
       "priceCents": 42000,
       "statusUpdatedAt": "2026-08-24T10:00:00.000Z",
       "statusUpdatedBy": { "id": "...", "email": "admin@example.com" },
       "statusReason": "Operational delay",
       "scheduleVersion": 1,
-      "scheduleUpdatedAt": "2026-08-24T10:00:00.000Z",
-      "scheduleUpdatedBy": { "id": "...", "email": "admin@example.com" },
-      "scheduleReason": "Operational delay",
       "scheduleChanges": [
         {
           "revision": 1,
@@ -937,7 +817,7 @@ limit
 
 ### `PATCH /api/admin/flights/:flightId/schedule`
 
-原子修改尚未起飞的 `SCHEDULED/DELAYED` 航班当前起飞和抵达时间，同时保留首次排班和历史记录：
+Atomically changes the effective schedule of a future `SCHEDULED` or `DELAYED` flight and preserves the original schedule and change history.
 
 ```json
 {
@@ -948,20 +828,18 @@ limit
 }
 ```
 
-规则：
-
-- 两个时间都必填，必须带 `Z` 或 UTC offset，且 `arrivalAt > departureAt`。
-- 新 `departureAt` 必须晚于服务端当前时间。
-- `expectedScheduleVersion` 必须等于管理员最近读取到的 `scheduleVersion`；版本过期返回 `409 FLIGHT_SCHEDULE_CONFLICT`，防止两个管理员互相覆盖。
-- 时间变更会递增版本并追加一条不可由 API 修改的 `scheduleChanges` 记录。
-- 如果新起飞时间晚于首次排班且当前状态为 `SCHEDULED`，服务端会同时改为 `DELAYED`。
-- 原 `scheduledDepartureAt/scheduledArrivalAt` 保持不变，已有订单会在其 Flight DTO 中看到最新时间。
-- `meta.affectedBookings` 返回更新时仍为 `CONFIRMED` 的相关订单数量。
-- 相同时间和当前版本重放返回 `meta.changed=false`，不会新增历史记录。
+- Both timestamps are required, must include `Z` or a UTC offset, and must satisfy `arrivalAt > departureAt`.
+- The new departure must be in the future.
+- `expectedScheduleVersion` must match the latest value read by the administrator. A stale version returns `409 FLIGHT_SCHEDULE_CONFLICT`.
+- A change increments the version and appends an immutable `scheduleChanges` entry.
+- Delaying a `SCHEDULED` flight automatically changes its status to `DELAYED`.
+- Original scheduled timestamps remain unchanged.
+- `meta.affectedBookings` reports related bookings that were still confirmed at update time.
+- Replaying the current times and version returns `meta.changed=false` without adding history.
 
 ### `PATCH /api/admin/flights/:flightId`
 
-修改航班价格、状态，或在一个请求中同时修改两者：
+Changes price, status, or both:
 
 ```json
 {
@@ -971,30 +849,14 @@ limit
 }
 ```
 
-规则：
+- At least one of `status` and `priceCents` is required; only those fields and `reason` are accepted.
+- `priceCents` must be a positive safe integer and can be changed only for `SCHEDULED` or `DELAYED` flights.
+- Price changes do not alter existing booking snapshots.
+- A status change requires a 3–500 character reason.
+- Allowed transitions are `SCHEDULED -> DELAYED | CANCELLED | DEPARTED`, `DELAYED -> SCHEDULED | CANCELLED | DEPARTED`, and `DEPARTED -> ARRIVED`.
+- `CANCELLED` and `ARRIVED` are terminal states.
 
-- 至少提供 `status` 或 `priceCents`，且只允许 `status`、`priceCents`、`reason` 三个字段。
-- `priceCents` 必须是正的安全整数；只有 `SCHEDULED/DELAYED` 航班可调价。
-- 调价不会修改已有订单的价格快照，新订单使用新价格。
-- 提供 `status` 时，`reason` 必填且长度为 3–500。
-- 状态转换只允许：
-  - `SCHEDULED -> DELAYED | CANCELLED | DEPARTED`
-  - `DELAYED -> SCHEDULED | CANCELLED | DEPARTED`
-  - `DEPARTED -> ARRIVED`
-- `CANCELLED`、`ARRIVED` 为终止状态；相同状态重放不重复改变状态。
-
-成功响应中的管理员 Flight DTO在普通 Flight DTO 基础上增加：
-
-```json
-{
-  "priceCents": 42000,
-  "statusUpdatedAt": "2026-08-24T10:00:00.000Z",
-  "statusUpdatedBy": { "id": "...", "email": "admin@example.com" },
-  "statusReason": "Operational delay"
-}
-```
-
-响应 `meta` 包含：
+The response `meta` contains:
 
 ```json
 {
@@ -1004,101 +866,102 @@ limit
 }
 ```
 
-将航班改为 `CANCELLED` 时，服务端会取消该航班全部 `CONFIRMED` 订单、写入 `cancellation.source=FLIGHT`，并把 `availableSeats` 恢复为 `totalSeats`。重复请求会继续修复遗漏订单，但不会重复修改已取消订单。
+Changing a flight to `CANCELLED` cancels all its confirmed bookings, sets `cancellation.source=FLIGHT`, and restores `availableSeats` to `totalSeats`. Repeated requests continue repairing missed bookings without changing already cancelled ones.
 
-管理端可使用管理员专用 GET 查询全部航班；当前版本仍不提供创建或删除航班接口，删除语义使用 `CANCELLED` 状态表示。
+The current API does not create or physically delete flights. Cancellation represents deletion from normal availability.
 
-### 管理员角色和维护命令
+### Administrator and maintenance commands
 
-现有用户、订单和航班在部署前执行默认只报告的迁移。该迁移也会识别缺少首次排班时间或 `scheduleVersion` 的旧航班：
+Report legacy user, booking, flight, schedule, and index migrations:
 
 ```powershell
 npm run migrate:admin
 ```
 
-暂停 Booking 写入后应用迁移：
+Apply the migration during a booking-write maintenance window:
 
 ```powershell
 $env:BOOKING_WRITES_PAUSED="true"
 npm run migrate:admin -- --apply
 ```
 
-授予管理员角色：
+Grant or remove an administrator role:
 
 ```powershell
 npm run admin:role -- --email admin@example.com --role ADMIN --apply
 ```
 
-检查航班取消与订单状态一致性：
+Check flight cancellation and booking consistency:
 
 ```powershell
 npm run reconcile:admin
 ```
 
-修复时同样要求维护窗口和 `BOOKING_WRITES_PAUSED=true`。
+Repairs require a maintenance window and `BOOKING_WRITES_PAUSED=true`.
 
-## 主要错误码速查
+## Error code reference
 
-| HTTP 状态 | 错误码 | 含义 |
+| HTTP status | Code | Meaning |
 | --- | --- | --- |
-| 400 | `INVALID_REQUEST` | 请求体、路径参数或查询参数不符合接口规则。 |
-| 400 | `INVALID_ID` | 服务层收到的 ID 不是有效 ObjectId。 |
-| 400 | `ADMIN_REASON_REQUIRED` | 管理操作缺少有效原因。 |
-| 400 | `INVALID_FLIGHT_SCHEDULE` | 航班抵达时间不晚于起飞时间。 |
-| 401 | `AUTH_REQUIRED` | 缺少或格式错误的 Bearer Token。 |
-| 401 | `INVALID_CREDENTIALS` | 登录邮箱或密码错误。 |
-| 401 | `INVALID_TOKEN` | Token 无效、签名不正确或用户不存在。 |
-| 401 | `TOKEN_EXPIRED` | Token 已过期。 |
-| 401 | `TOKEN_REVOKED` | Token 已被服务端注销；需要重新登录。 |
-| 403 | `ACCOUNT_NOT_ACTIVE` | 用户状态不是 `ACTIVE`。 |
-| 403 | `ADMIN_REQUIRED` | 当前用户没有管理员权限。 |
-| 404 | `FLIGHT_NOT_FOUND` | 指定航班不存在。 |
-| 404 | `BOOKING_NOT_FOUND` | 订单不存在或不属于当前用户。 |
-| 404 | `ROUTE_NOT_FOUND` | 路由不存在。 |
-| 409 | `EMAIL_ALREADY_REGISTERED` | 邮箱已注册。 |
-| 409 | `FLIGHT_NOT_FOUND_OR_SOLD_OUT` | 航班不可预订或余票不足。 |
-| 409 | `IDEMPOTENCY_KEY_CONFLICT` | 同一用户使用相同幂等 key 提交了不同预订请求。 |
-| 409 | `BOOKING_NOT_CANCELLABLE` | 订单当前不能取消。 |
-| 409 | `ADMIN_STATUS_CHANGE_FORBIDDEN` | 不允许管理员锁定或停用自身及其他管理员。 |
-| 409 | `INVALID_STATUS_TRANSITION` | 航班状态转换不合法。 |
-| 409 | `FLIGHT_PRICE_NOT_EDITABLE` | 当前航班状态不允许调价。 |
-| 409 | `FLIGHT_SCHEDULE_NOT_EDITABLE` | 当前航班状态不允许修改排班。 |
-| 409 | `FLIGHT_SCHEDULE_CONFLICT` | 航变版本过期，或请求时间与其他航班实例冲突。 |
-| 409 | `FLIGHT_SCHEDULE_IN_PAST` | 新起飞时间不是未来时间。 |
-| 409 | `USER_STATUS_CONFLICT` | 用户状态被另一个请求同时修改。 |
-| 409 | `FLIGHT_UPDATE_CONFLICT` | 航班被另一个请求同时修改。 |
-| 500 | `BOOKING_CREATION_FAILED` | 创建订单失败，系统已尝试恢复座位。 |
-| 500 | `BOOKING_CONSISTENCY_ERROR` | 座位和订单的补偿或恢复状态无法安全确认。 |
-| 500 | `ADMIN_CONSISTENCY_ERROR` | 航班或订单管理操作需要一致性修复。 |
-| 503 | `BOOKING_WRITES_PAUSED` | 维护期间暂停创建/取消订单。 |
+| 400 | `INVALID_REQUEST` | A body, path, or query field is invalid. |
+| 400 | `INVALID_ID` | A service received an invalid ObjectId or UUID. |
+| 400 | `ADMIN_REASON_REQUIRED` | An administrator operation lacks a valid reason. |
+| 400 | `INVALID_FLIGHT_SCHEDULE` | Arrival is not later than departure. |
+| 401 | `AUTH_REQUIRED` | The Bearer token is missing or malformed. |
+| 401 | `INVALID_CREDENTIALS` | The login email or password is incorrect. |
+| 401 | `INVALID_TOKEN` | The token, signature, or referenced user is invalid. |
+| 401 | `TOKEN_EXPIRED` | The token has expired. |
+| 401 | `TOKEN_REVOKED` | The server has revoked the token. |
+| 403 | `ACCOUNT_NOT_ACTIVE` | The user is not active. |
+| 403 | `ADMIN_REQUIRED` | The current user is not an administrator. |
+| 404 | `FLIGHT_NOT_FOUND` | The flight does not exist. |
+| 404 | `BOOKING_NOT_FOUND` | The booking is missing or belongs to another user. |
+| 404 | `SESSION_NOT_FOUND` | The session is missing or belongs to another user. |
+| 404 | `ROUTE_NOT_FOUND` | The route does not exist. |
+| 409 | `EMAIL_ALREADY_REGISTERED` | The email is already registered. |
+| 409 | `FLIGHT_NOT_FOUND_OR_SOLD_OUT` | The flight cannot be booked or lacks seats. |
+| 409 | `IDEMPOTENCY_KEY_CONFLICT` | A booking key was reused with different payload fields. |
+| 409 | `BOOKING_NOT_CANCELLABLE` | The booking cannot currently be cancelled. |
+| 409 | `SESSION_ID_CONFLICT` | Another user already owns the globally unique session ID. |
+| 409 | `INVALID_STATUS_TRANSITION` | A flight status transition is not allowed. |
+| 409 | `FLIGHT_PRICE_NOT_EDITABLE` | The current flight status does not allow price changes. |
+| 409 | `FLIGHT_SCHEDULE_NOT_EDITABLE` | The current flight status does not allow schedule changes. |
+| 409 | `FLIGHT_SCHEDULE_CONFLICT` | The schedule version is stale or another update won. |
+| 409 | `FLIGHT_SCHEDULE_IN_PAST` | The new departure time is not in the future. |
+| 409 | `USER_STATUS_CONFLICT` | Another request changed the user status. |
+| 409 | `FLIGHT_UPDATE_CONFLICT` | Another request changed the flight. |
+| 500 | `BOOKING_CREATION_FAILED` | Booking creation failed after compensation. |
+| 500 | `BOOKING_CONSISTENCY_ERROR` | Booking and inventory state cannot be confirmed safely. |
+| 500 | `ADMIN_CONSISTENCY_ERROR` | An administrator operation requires reconciliation. |
+| 503 | `BOOKING_WRITES_PAUSED` | Booking creation and cancellation are paused. |
 
-## 推荐调用流程
+## Recommended client flow
 
-1. `POST /api/auth/register` 或 `POST /api/auth/login` 获取 JWT。
-2. 使用 `GET /api/airports/search` 让用户选定具体出发/到达机场。
-3. 使用 `GET /api/flights/search` 查询航班；客户端按 UTC 时间显示时应转换为需要展示的本地时区。
-4. 用户确认后生成 UUID，并调用 `POST /api/bookings`。同一次预订的重试必须沿用同一个 UUID。
-5. 使用 `GET /api/bookings/me` 展示订单列表，使用 `GET /api/bookings/:bookingId` 打开详情；需要取消时调用 `PATCH /api/bookings/:bookingId/cancel`。
-6. 使用 `POST /api/auth/logout` 撤销登录，再清除客户端状态。
+1. Call `POST /api/auth/register` or `POST /api/auth/login` to obtain a JWT.
+2. Call `POST /api/sessions` with a new UUID when starting an AI conversation.
+3. Resolve airports with `GET /api/airports/search`.
+4. Search with `GET /api/flights/search` and display UTC times in the desired local time zone.
+5. Generate one UUID for a booking attempt and reuse it for every retry of that attempt.
+6. Use `GET /api/bookings/me` and `GET /api/bookings/:bookingId` for trips and details; cancel through `PATCH /api/bookings/:bookingId/cancel`.
+7. Append completed model messages through `POST /api/sessions/:sessionId/messages`.
+8. Use `POST /api/auth/logout` to revoke the current token.
 
-未来 AI 功能应调用同一组 API 或其后端服务封装；AI 不应直接访问 MongoDB，也不应绕过认证、余票校验或幂等预订规则。
+The AI middle layer must use these authenticated APIs rather than accessing MongoDB directly or bypassing booking validation, inventory checks, and idempotency.
 
-## 非 admin API 与当前前端的对应关系
+## Current frontend mapping
 
-| 前端需求 | 使用的接口 | 结论 |
+| Frontend requirement | API | Status |
 | --- | --- | --- |
-| 注册、登录、只读 Profile | `register`、`login`、`me` | 足够；Profile 没有编辑流程，无需增加修改用户接口。 |
-| 服务端退出登录 | `POST /api/auth/logout` | 从 `users.tokens` 删除当前原始 Token，只结束当前会话。 |
-| 机场选择、同城机场切换 | `GET /api/airports/search` | 足够；最终仍选择一个具体 IATA 代码。 |
-| 日期、旅客数、上午/下午、航空公司筛选与排序分页 | `GET /api/flights/search` | 足够；筛选仍在服务端进行。 |
-| 完整航空公司选项 | 新增 `GET /api/airlines` | 避免只扫描前 50 条航班导致选项缺失。 |
-| 五日最低价栏 | 对五个日期分别搜索，`limit=1&sortBy=price&sortOrder=asc` | 复用现有接口，价格来自实际结果；仅改变页码或排序时不重查此栏。 |
-| 航班详情与确认预订 | `GET /api/flights/:flightId`、`POST /api/bookings` | 足够；总价用整数美分计算，网络重试复用 UUID。 |
-| My trips、订单详情与取消 | 当前四个订单读取/创建/取消接口 | 足够；固定按创建时间倒序，不提供虚假的筛选/排序控件。 |
-| AI 聊天与清除会话 | 中间层 `POST /api/chat`、`DELETE /api/chat/{sessionId}` | 已有接口，浏览器通过 `/chat-api/chat` 代理调用；二者均验证 Bearer Token，缓存与删除按用户隔离。 |
+| Registration, login, read-only profile | Authentication endpoints | Supported; no profile-editing API is needed. |
+| Server-side logout | `POST /api/auth/logout` | Removes only the current token. |
+| Airport selection | `GET /api/airports/search` | Resolves a concrete IATA airport. |
+| Airline options | `GET /api/airlines` | Returns the complete enabled directory. |
+| Flight filters and pagination | `GET /api/flights/search` | Filtering and ordering remain server-side. |
+| Five-day lowest-price strip | Five searches with `limit=1&sortBy=price&sortOrder=asc` | Reuses real search results. |
+| Flight details and booking | Flight detail and booking endpoints | Retries reuse one UUID. |
+| Trips, booking details, cancellation | Booking endpoints | Supported and scoped to the current user. |
+| Persistent AI conversations | Session endpoints | Backend storage is available; the middle layer and frontend must use it. |
 
-参考截图中的忘记密码和语言选择尚无相应产品流程，因此前端暂不展示可点击的占位入口。密码找回需要验证邮件及一次性重置凭证，不能只加一个修改密码的公开接口。英文界面不需要为了一个语言标签增加后端路由。
+Password recovery is not exposed because it requires verified email delivery and one-time reset credentials. A language label does not require a backend endpoint.
 
-AI 会话的真实过期时间没有在响应中提供；前端不再固定宣称“Expires in 1 hour”。如果需要精确倒计时，应先由中间层返回 `expiresAt`。聊天仍由中间层调用业务 API，不需要在 Node 后端重复添加一套 AI 业务路由。
-
-当前保留 Bearer 客户端契约；浏览器 Remember me 保存的仍是受 24 小时有效期约束的凭证。服务端按本项目约定在 `users.tokens` 保存原始 JWT，而不是 Token 摘要。
+Bearer authentication remains the client contract. Remember me changes browser storage only and does not extend the server token's 24-hour lifetime.

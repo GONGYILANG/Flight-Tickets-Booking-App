@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
+import { testDatabaseName } from "../src/scripts/testDatabase.js";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import "dotenv/config";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import request from "supertest";
-
-process.env.NODE_ENV = "test";
 
 const [{ default: app }, databaseModule, userModule] = await Promise.all([
   import("../src/app.js"),
@@ -41,7 +40,7 @@ test("health endpoint remains available", async () => {
   const response = await request(app).get("/api/health").expect(200);
 
   assert.equal(response.body.status, "ok");
-  assert.equal(response.body.database.name, process.env.MONGODB_DB_NAME);
+  assert.equal(response.body.database.name, testDatabaseName);
 });
 
 test("register rejects invalid fields", async () => {

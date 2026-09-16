@@ -30,6 +30,8 @@ const serviceErrorStatuses = {
   BOOKING_CONSISTENCY_ERROR: 500,
   BOOKING_WRITES_PAUSED: 503,
   IDEMPOTENCY_KEY_CONFLICT: 409,
+  SESSION_NOT_FOUND: 404,
+  SESSION_ID_CONFLICT: 409,
 };
 
 export function errorHandler(error, _request, response, _next) {
