@@ -1,16 +1,17 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/authenticate.js";
 import {
-  appendSessionMessages,
+  startTurn,
+  finishTurn,
   createSession,
   deleteSessionForUser,
   getSessionForUser,
   listSessionsForUser,
 } from "../services/sessionService.js";
 import {
-  validateAppendSessionMessages,
+  validateStartTurn,
+  validateFinishTurn,
   validateCreateSession,
-  validateListSessions,
   validateSessionId,
 } from "../validators/sessionValidators.js";
 
@@ -27,11 +28,10 @@ router.post("/", authenticate, validateCreateSession, async (request, response) 
   });
 });
 
-router.get("/", authenticate, validateListSessions, async (request, response) => {
+router.get("/", authenticate, async (request, response) => {
   response.json({
     data: await listSessionsForUser({
       userId: request.user._id,
-      ...request.validatedQuery,
     }),
   });
 });
@@ -48,17 +48,39 @@ router.get("/:sessionId", authenticate, validateSessionId, async (request, respo
 });
 
 router.post(
-  "/:sessionId/messages",
+  "/:sessionId/turns",
   authenticate,
   validateSessionId,
-  validateAppendSessionMessages,
+  validateStartTurn,
   async (request, response) => {
-    await appendSessionMessages({
+    const result = await startTurn({
       userId: request.user._id,
       sessionId: request.params.sessionId,
       ...request.validatedBody,
     });
-    response.status(204).end();
+    response.status(result.alreadyExists ? 200 : 201).json({
+      data: { turn: result.turn },
+      meta: { alreadyExists: result.alreadyExists },
+    });
+  },
+);
+
+router.post(
+  "/:sessionId/turns/:turnId/finish",
+  authenticate,
+  validateSessionId,
+  validateFinishTurn,
+  async (request, response) => {
+    const result = await finishTurn({
+      userId: request.user._id,
+      sessionId: request.params.sessionId,
+      turnId: request.params.turnId,
+      ...request.validatedBody,
+    });
+    response.json({
+      data: { turn: result.turn },
+      meta: { alreadyCompleted: result.alreadyCompleted },
+    });
   },
 );
 

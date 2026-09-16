@@ -12,6 +12,8 @@ import sessionRoutes from "./routes/sessionRoutes.js";
 const app = express();
 
 app.disable("x-powered-by");
+// Full tool results and reasoning can exceed the ordinary request limit.
+app.use("/api/sessions", express.json({ limit: "2mb" }));
 app.use(express.json({ limit: "100kb" }));
 
 app.use("/api/health", healthRoutes);

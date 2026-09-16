@@ -34,7 +34,8 @@ Content-Type: application/json
 | Sessions | `POST` | `/api/sessions` | Yes |
 | Sessions | `GET` | `/api/sessions` | Yes |
 | Sessions | `GET` | `/api/sessions/:sessionId` | Yes |
-| Sessions | `POST` | `/api/sessions/:sessionId/messages` | Yes |
+| Turns | `POST` | `/api/sessions/:sessionId/turns` | Yes |
+| Turns | `POST` | `/api/sessions/:sessionId/turns/:turnId/finish` | Yes |
 | Sessions | `DELETE` | `/api/sessions/:sessionId` | Yes |
 | Administration | `GET` | `/api/admin/users` | Admin |
 | Administration | `GET` | `/api/admin/users/:userId` | Admin |
@@ -216,22 +217,58 @@ Flight status is `SCHEDULED`, `DELAYED`, `CANCELLED`, `DEPARTED`, or `ARRIVED`. 
 
 `source` is `UI` or `AI`; `status` is `CONFIRMED` or `CANCELLED`. Public Booking objects omit the user ID, password data, `idempotencyKey`, internal cent values, and Mongoose fields.
 
-### Session
+### Session and Turn
 
-```json
+Session summaries contain `sessionId`, `title`, `createdAt`, `updatedAt`, and `lastAccess`. Detail responses additionally contain **all** `turns` ordered by `sequence ASC`. The `sessions` collection stores the owner, metadata, an internal `nextSequence` allocator, and a retryable deletion marker. Messages live in the separate `turns` collection.
+
+Each Turn references its parent Session's MongoDB `_id`. Unique compound indexes on `(session, turnId)` and `(session, sequence)` protect retry identity and ordering. `sequence` starts at 1 and is allocated atomically by the backend. Gaps after concurrent retries or unsuccessful inserts are valid; it represents allocation order, not completion time or the number of turns.
+
+Run `npm run indexes` from `backend` before enabling these routes in production, where automatic index creation is disabled. The index script includes the new Turn collection.
+
+Example completed Turn DTO:
+
+~~~json
 {
-  "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
-  "createdAt": "2026-09-15T09:55:00.000Z",
-  "updatedAt": "2026-09-15T10:00:00.000Z",
-  "lastAccess": "2026-09-15T10:00:00.000Z",
-  "history": [
-    { "role": "user", "content": "Find a flight from PEK to HKG tomorrow." },
-    { "role": "assistant", "content": "I found one matching flight." }
-  ]
+  "turnId": "16deaf91-c2aa-48a9-b6cd-14d09ba50af9",
+  "sequence": 1,
+  "status": "completed",
+  "messages": [
+    { "role": "user", "content": "Find flights." },
+    {
+      "role": "assistant",
+      "content": null,
+      "reasoning_content": "Search for available flights.",
+      "tool_calls": [{
+        "id": "call-1",
+        "type": "function",
+        "function": { "name": "search_flights", "arguments": "{}" }
+      }]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call-1",
+      "content": "{\"ok\":true,\"status\":200,\"data\":{\"flights\":[]}}"
+    },
+    { "role": "assistant", "content": "No flights found." }
+  ],
+  "view": {
+    "userMessage": "Find flights.",
+    "assistantMessage": "No flights found.",
+    "events": [
+      { "tool": "search_flights", "result": { "ok": true, "status": 200, "data": { "flights": [] } } }
+    ]
+  },
+  "error": null,
+  "createdAt": "2026-09-17T09:55:00.000Z",
+  "updatedAt": "2026-09-17T09:55:10.000Z"
 }
-```
+~~~
 
-`history` is one flat, ordered array of JSON-compatible model messages with roles `system`, `user`, `assistant`, or `tool`. It can include assistant tool calls and their tool responses. Do not place authentication tokens in model messages. Sessions are retained until explicitly deleted; `lastAccess` has no TTL index. Responses never expose the owning user ID.
+`messages` preserves the initial user message, every serialized `response.choices[0].message`, and every tool message, including provider fields such as `reasoning_content`. Serialize Python SDK messages with `model_dump(mode="json")`. Never store bearer tokens in model messages. System instructions belong to the middle layer's model context, outside the per-turn transcript.
+
+`view` is generated and stored by the backend from `messages`; callers do not submit a second copy. It contains user text, final assistant text (or `null`), and ordered `{tool, result}` attachments for `ChatEventCards`. Tool IDs and arguments remain in `messages`, outside `view.events`. The middle layer should return views/statuses to the UI and keep raw reasoning/tool transcripts server-side.
+
+Sessions and turns have no TTL. Internal MongoDB IDs, owner IDs, sequence counters, and deletion markers are omitted from DTOs.
 
 ## Health API
 
@@ -570,107 +607,126 @@ Repeated or concurrent cancellation returns the same booking with `meta.alreadyC
 
 Common errors include `400 INVALID_REQUEST`, `404 BOOKING_NOT_FOUND`, `409 BOOKING_NOT_CANCELLABLE`, `503 BOOKING_WRITES_PAUSED`, and `500 BOOKING_CONSISTENCY_ERROR`.
 
-## Session API
+## Session and Turn API
 
-Session endpoints require authentication and always scope records to `request.user._id`. The owning user ID is never accepted from a request body or exposed in a response.
+All endpoints require the current user's bearer token and scope access to that user's Session. Owner IDs cannot be supplied in the body. These REST endpoints provide persistence for the middle layer; frontend restoration through FastAPI is a subsequent integration step. Bearer authentication establishes ownership, not proof that a transcript was generated by the middle layer; keep transcript writes on a trusted service path when wiring production restoration.
 
-Sessions do not expire automatically. Existing messages are append-only: the API provides no endpoint for editing or deleting an individual message. The backend does not store HTTP retry replies or request IDs in Session records; the AI middle layer keeps its short-lived reply cache separately.
+Session requests allow up to **2 MiB** of JSON; ordinary endpoints retain the 100 KiB limit. Unknown request body fields are rejected.
 
 ### `POST /api/sessions`
 
-Creates an empty permanent session.
+Creates an empty permanent session:
 
-```json
-{
-  "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279"
-}
-```
+~~~json
+{ "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279" }
+~~~
 
-`sessionId` is required and must be a canonical UUID. It is globally unique.
+The canonical UUID is globally unique. Returns `201` with `{data: {session: <summary>}, meta: {alreadyExists: false}}`. The initial title is `New conversation`; starting sequence 1 sets it to the first 80 characters of the input. The summary includes timestamps but no `turns` array.
 
-Initial creation returns `201`:
-
-```json
-{
-  "data": {
-    "session": {
-      "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
-      "createdAt": "2026-09-15T09:55:00.000Z",
-      "updatedAt": "2026-09-15T09:55:00.000Z",
-      "lastAccess": "2026-09-15T09:55:00.000Z",
-      "history": []
-    }
-  },
-  "meta": {
-    "alreadyExists": false
-  }
-}
-```
-
-Repeating the request as the same user returns `200` with the existing session and `meta.alreadyExists=true`. If another user already owns that globally unique ID, the response is `409 SESSION_ID_CONFLICT`.
+Repeating creation as the owner returns `200` and `meta.alreadyExists=true` without clearing history. An ID owned by someone else or currently being deleted returns `409 SESSION_ID_CONFLICT`.
 
 ### `GET /api/sessions`
 
-Lists the current user's sessions, ordered by `lastAccess DESC, _id DESC`. List entries omit `history`.
+Returns **all** current-user session summaries, ordered by `lastAccess DESC, _id DESC`:
 
-| Parameter | Required | Default | Rules |
-| --- | --- | --- | --- |
-| `page` | No | `1` | Integer from 1 to 10000. |
-| `limit` | No | `20` | Integer from 1 to 50. |
-
-```json
+~~~json
 {
   "data": {
-    "sessions": [
-      {
-        "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
-        "createdAt": "2026-09-15T09:55:00.000Z",
-        "updatedAt": "2026-09-15T10:00:00.000Z",
-        "lastAccess": "2026-09-15T10:00:00.000Z"
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "limit": 20,
-      "totalItems": 1,
-      "totalPages": 1
-    }
+    "sessions": [{
+      "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
+      "title": "Find flights.",
+      "createdAt": "2026-09-17T09:55:00.000Z",
+      "updatedAt": "2026-09-17T09:55:10.000Z",
+      "lastAccess": "2026-09-17T09:55:10.000Z"
+    }]
   }
 }
-```
+~~~
+
+There is no pagination or message payload. The middle layer can load the sidebar in one request and fetch each session's turns through the detail endpoint.
 
 ### `GET /api/sessions/:sessionId`
 
-Returns the current user's session with its complete `history`. Reading the session updates `lastAccess`. An invalid UUID returns `400 INVALID_REQUEST`; a missing session or another user's session returns `404 SESSION_NOT_FOUND`.
+Returns `{data: {session: <summary plus turns>}}`, including **all** completed, pending, and failed Turns in `sequence ASC` order. Empty sessions have `turns: []`. Reading updates `lastAccess`. No client-side turn grouping or event reconstruction is needed.
 
-```json
+Invalid UUIDs return `400 INVALID_REQUEST`; missing, deleting, or other-user sessions return `404 SESSION_NOT_FOUND`.
+
+### `POST /api/sessions/:sessionId/turns`
+
+Persist user input **before** invoking the model or any tools:
+
+~~~json
 {
-  "data": {
-    "session": { "...": "full Session object" }
-  }
+  "turnId": "16deaf91-c2aa-48a9-b6cd-14d09ba50af9",
+  "message": "Find flights."
 }
-```
+~~~
 
-### `POST /api/sessions/:sessionId/messages`
+`turnId` is a canonical UUID; reuse the middle layer's `requestId`. `message` is a nonblank string of 1–4000 characters after trimming. The backend assigns `sequence` and saves:
 
-Atomically appends a batch of ordered messages to `history` without changing earlier messages.
+- `status: "pending"`
+- `messages: [{role: "user", content: <trimmed message>}]`
+- `view: {userMessage: <trimmed message>, assistantMessage: null, events: []}`
+- `error: null`
 
-```json
+Returns `201` with `{data: {turn: <Turn DTO>}, meta: {alreadyExists: false}}`. Repeating the same ID and input returns the existing Turn with `200` and `alreadyExists=true`, including its current status and any saved result. It does not reset the Turn. Reusing an ID for different input returns `409 TURN_ID_CONFLICT`. Concurrent repeated creates produce one Turn.
+
+A replayed start is not an execution lock. The middle layer must serialize processing per session and avoid launching another model/tool run merely because a pending record exists.
+
+### `POST /api/sessions/:sessionId/turns/:turnId/finish`
+
+Save the **entire turn transcript** in one atomic Turn update after processing:
+
+~~~json
 {
+  "status": "completed",
   "messages": [
-    { "role": "user", "content": "Find a flight from PEK to HKG tomorrow." },
-    { "role": "assistant", "content": "I found one matching flight." }
+    { "role": "user", "content": "Hello." },
+    { "role": "assistant", "content": "How can I help with your flight?" }
   ]
 }
-```
+~~~
 
-`messages` must contain 1–100 JSON objects, each with a `role` of `system`, `user`, `assistant`, or `tool`. Successful append returns `204 No Content`. Messages within a batch remain consecutive even when other clients append concurrently. This endpoint does not deduplicate repeated batches.
+Use the actual initial input and include every intervening assistant/tool message when tools were called. `messages` must contain 1–100 objects and start with the unchanged user input. Subsequent roles are `assistant` and `tool`. Assistant content is a string or `null`; function calls carry unique IDs, names, and argument strings. Arguments are preserved verbatim, including invalid argument JSON when a tool returned a validation error.
+
+Each tool message must reference an unanswered call and contain a JSON-encoded result object. Results for multiple calls may arrive in any order, but all pending calls must be answered before the next assistant message. Completed transcripts must end with nonblank assistant text and no unanswered calls. The backend derives `view.events` in tool-result order.
+
+To record a known failure, submit the available transcript and a short error:
+
+~~~json
+{
+  "status": "failed",
+  "messages": [{ "role": "user", "content": "Find flights." }],
+  "error": "The model provider could not complete this turn."
+}
+~~~
+
+Failed transcripts may end with unanswered tool calls. `error` is required for failures (1–2000 characters), and absent or `null` for completion. A hard crash before this request leaves the initial `pending` record, identifying an unfinished turn. Pending does not prove a worker is still running.
+
+Returns `200` with `{data: {turn: <Turn DTO>}, meta: {alreadyCompleted: false}}`. Completed Turns are immutable: the identical result returns `200` and `alreadyCompleted=true`; a different result or stale failure returns `409 TURN_ALREADY_COMPLETED`. Pending and failed Turns can receive a final result, allowing completion with the same ID after a deliberate retry. Failed snapshots can be replaced; the middle layer remains responsible for serialized retries.
+
+Missing Turns return `404 TURN_NOT_FOUND`. Changed original input returns `409 TURN_ID_CONFLICT`. Invalid transcripts return `400 INVALID_REQUEST`. Saving or replaying a Turn updates the parent Session's `lastAccess`.
+
+This strategy records the start and final result, not each intermediate side effect. A provider/process failure after booking creation does not undo that booking; preserve its existing booking idempotency key when retrying.
 
 ### `DELETE /api/sessions/:sessionId`
 
-Permanently deletes the current user's session and all its history. It returns `204 No Content`. Deleting a missing session or another user's session is also a harmless `204` and does not reveal whether that session exists.
+Permanently deletes the owner's session and associated Turns. Returns `204`, also for missing or other-user sessions. A durable internal deletion marker hides partially deleted sessions and allows DELETE to be retried if collection cleanup fails. No cross-collection transaction support is required.
 
-There are no `PATCH` or `PUT` Session endpoints. A client that needs to correct a conversation must append new messages or create a new session.
+### Compatibility and middle-layer integration
+
+The former `Session.history` schema and `POST /api/sessions/:sessionId/messages` endpoint are replaced by Turns; the old append route returns `404`. Existing database `history` fields are not automatically migrated or erased, and are not returned by the new detail endpoint. Migrate legacy history before relying on the new restore contract; original request IDs and reliable boundaries cannot be recovered by assuming arbitrary batches were turns.
+
+The intended middle-layer sequence is:
+
+1. Create/reuse the Session through `POST /api/sessions`.
+2. Start the Turn with `turnId=requestId`, and wait for persistence before executing tools.
+3. Keep the complete turn transcript in memory during the model/tool loop.
+4. Save success or known failure through `/turns/:turnId/finish`.
+5. Restore the sidebar from `GET /api/sessions` and each conversation from `GET /api/sessions/:sessionId`; return ordered views/statuses to the browser.
+6. Reconstruct model context from completed transcripts and system instructions. Handle pending/failed turns explicitly rather than blindly sending unfinished tool chains to the model.
+
+FastAPI proxy/restoration routes and frontend store integration are not implemented in this backend stage.
 
 ## Administration API
 
@@ -917,12 +973,15 @@ Repairs require a maintenance window and `BOOKING_WRITES_PAUSED=true`.
 | 404 | `FLIGHT_NOT_FOUND` | The flight does not exist. |
 | 404 | `BOOKING_NOT_FOUND` | The booking is missing or belongs to another user. |
 | 404 | `SESSION_NOT_FOUND` | The session is missing or belongs to another user. |
+| 404 | `TURN_NOT_FOUND` | The turn does not exist in the owned session. |
 | 404 | `ROUTE_NOT_FOUND` | The route does not exist. |
 | 409 | `EMAIL_ALREADY_REGISTERED` | The email is already registered. |
 | 409 | `FLIGHT_NOT_FOUND_OR_SOLD_OUT` | The flight cannot be booked or lacks seats. |
 | 409 | `IDEMPOTENCY_KEY_CONFLICT` | A booking key was reused with different payload fields. |
 | 409 | `BOOKING_NOT_CANCELLABLE` | The booking cannot currently be cancelled. |
-| 409 | `SESSION_ID_CONFLICT` | Another user already owns the globally unique session ID. |
+| 409 | `SESSION_ID_CONFLICT` | The globally unique session ID is owned by someone else or is being deleted. |
+| 409 | `TURN_ID_CONFLICT` | A turn ID was reused with different user input. |
+| 409 | `TURN_ALREADY_COMPLETED` | A completed turn cannot be overwritten with a different result. |
 | 409 | `INVALID_STATUS_TRANSITION` | A flight status transition is not allowed. |
 | 409 | `FLIGHT_PRICE_NOT_EDITABLE` | The current flight status does not allow price changes. |
 | 409 | `FLIGHT_SCHEDULE_NOT_EDITABLE` | The current flight status does not allow schedule changes. |
@@ -938,12 +997,12 @@ Repairs require a maintenance window and `BOOKING_WRITES_PAUSED=true`.
 ## Recommended client flow
 
 1. Call `POST /api/auth/register` or `POST /api/auth/login` to obtain a JWT.
-2. Call `POST /api/sessions` with a new UUID when starting an AI conversation.
+2. Let the middle layer create/reuse a Session and persist a pending Turn before AI model/tool execution.
 3. Resolve airports with `GET /api/airports/search`.
 4. Search with `GET /api/flights/search` and display UTC times in the desired local time zone.
 5. Generate one UUID for a booking attempt and reuse it for every retry of that attempt.
 6. Use `GET /api/bookings/me` and `GET /api/bookings/:bookingId` for trips and details; cancel through `PATCH /api/bookings/:bookingId/cancel`.
-7. Append completed model messages through `POST /api/sessions/:sessionId/messages`.
+7. Let the middle layer save the full Turn transcript through `POST /api/sessions/:sessionId/turns/:turnId/finish`.
 8. Use `POST /api/auth/logout` to revoke the current token.
 
 The AI middle layer must use these authenticated APIs rather than accessing MongoDB directly or bypassing booking validation, inventory checks, and idempotency.
@@ -960,7 +1019,7 @@ The AI middle layer must use these authenticated APIs rather than accessing Mong
 | Five-day lowest-price strip | Five searches with `limit=1&sortBy=price&sortOrder=asc` | Reuses real search results. |
 | Flight details and booking | Flight detail and booking endpoints | Retries reuse one UUID. |
 | Trips, booking details, cancellation | Booking endpoints | Supported and scoped to the current user. |
-| Persistent AI conversations | Session endpoints | Backend storage is available; the middle layer and frontend must use it. |
+| Persistent AI conversations | Session and Turn endpoints | Ordered turns, status and card views are available; middle-layer and frontend restoration integration remain. |
 
 Password recovery is not exposed because it requires verified email delivery and one-time reset credentials. A language label does not require a backend endpoint.
 

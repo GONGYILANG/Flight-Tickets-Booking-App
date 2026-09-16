@@ -20,12 +20,14 @@ const sessionSchema = new Schema(
       ref: "User",
       required: true,
     },
-    // An embedded history has MongoDB's 16 MB document limit;
-    // move messages to a separate collection if sessions approach it.
-    history: {
-      type: [Schema.Types.Mixed],
-      default: [],
+    title: {
+      type: String,
+      default: "New conversation",
+      maxlength: 80,
     },
+    // Allocates ordering keys, not a turn count: failed/retried inserts can leave gaps.
+    nextSequence: { type: Number, default: 0, min: 0 },
+    deleting: { type: Boolean, default: false },
     lastAccess: {
       type: Date,
       required: true,
