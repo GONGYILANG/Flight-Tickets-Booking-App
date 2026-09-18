@@ -1,22 +1,7 @@
-import mongoose from "mongoose";
 import { isDeepStrictEqual } from "node:util";
 import { serviceError } from "../errors.js";
 import Session from "../models/Session.js";
 import Turn from "../models/Turn.js";
-
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-function requireObjectId(value, fieldName) {
-  if (!mongoose.isObjectIdOrHexString(value)) {
-    throw serviceError("INVALID_ID", `${fieldName} is not a valid ObjectId`, 400);
-  }
-}
-
-function requireUuid(value, fieldName) {
-  if (typeof value !== "string" || !uuidPattern.test(value)) {
-    throw serviceError("INVALID_ID", `${fieldName} is not a canonical UUID`, 400);
-  }
-}
 
 function toIsoString(value) {
   return new Date(value).toISOString();
@@ -50,9 +35,6 @@ function sessionNotFound() {
 }
 
 export async function createSession({ userId, sessionId }) {
-  requireObjectId(userId, "userId");
-  requireUuid(sessionId, "sessionId");
-
   try {
     const session = await Session.create({ sessionId, user: userId });
     return { session: toSessionSummary(session), alreadyExists: false };
@@ -74,7 +56,6 @@ export async function createSession({ userId, sessionId }) {
 }
 
 export async function listSessionsForUser({ userId }) {
-  requireObjectId(userId, "userId");
   // ponytail: return all summaries for sidebar restoration; paginate if histories grow large.
   const sessions = await Session.find({ user: userId, deleting: { $ne: true } })
     .select("sessionId title createdAt updatedAt lastAccess")
@@ -84,8 +65,6 @@ export async function listSessionsForUser({ userId }) {
 }
 
 export async function getSessionForUser({ userId, sessionId }) {
-  requireObjectId(userId, "userId");
-  requireUuid(sessionId, "sessionId");
   const session = await Session.findOneAndUpdate(
     { sessionId, user: userId, deleting: { $ne: true } },
     { $set: { lastAccess: new Date() } },
@@ -99,8 +78,6 @@ export async function getSessionForUser({ userId, sessionId }) {
 }
 
 async function ownedSession(userId, sessionId) {
-  requireObjectId(userId, "userId");
-  requireUuid(sessionId, "sessionId");
   const session = await Session.findOne({
     sessionId,
     user: userId,
@@ -131,7 +108,6 @@ function assertSameInput(turn, message) {
 }
 
 export async function startTurn({ userId, sessionId, turnId, message }) {
-  requireUuid(turnId, "turnId");
   const session = await ownedSession(userId, sessionId);
   const filter = { session: session._id, turnId };
   let turn = await Turn.findOne(filter).lean();
@@ -165,7 +141,6 @@ export async function startTurn({ userId, sessionId, turnId, message }) {
 }
 
 export async function finishTurn({ userId, sessionId, turnId, status, messages, view, error }) {
-  requireUuid(turnId, "turnId");
   const session = await ownedSession(userId, sessionId);
   const filter = { session: session._id, turnId };
   const existing = await Turn.findOne(filter).lean();
@@ -190,8 +165,6 @@ export async function finishTurn({ userId, sessionId, turnId, status, messages, 
 }
 
 export async function deleteSessionForUser({ userId, sessionId }) {
-  requireObjectId(userId, "userId");
-  requireUuid(sessionId, "sessionId");
   // No cross-collection transaction requirement (the deployment uses Cosmos MongoDB).
   // The durable marker hides the session and lets a failed deletion be retried safely.
   const session = await Session.findOneAndUpdate(

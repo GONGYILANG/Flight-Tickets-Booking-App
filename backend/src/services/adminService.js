@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { invalidRequest, serviceError } from "../errors.js";
 import Airline from "../models/Airline.js";
 import Airport from "../models/Airport.js";
@@ -33,16 +32,6 @@ const bookingPopulate = [
   { path: "cancelledBy", select: "email displayName status role" },
   { path: "flight", populate: flightPopulate },
 ];
-
-function requireObjectId(value, fieldName) {
-  if (!mongoose.isObjectIdOrHexString(value)) {
-    throw serviceError(
-      "INVALID_ID",
-      `${fieldName} is not a valid ObjectId`,
-      400,
-    );
-  }
-}
 
 function assertBookingWritesEnabled() {
   if (process.env.BOOKING_WRITES_PAUSED === "true") {
@@ -209,7 +198,6 @@ export async function listAdminUsers({ query, status, role, page, limit }) {
 }
 
 export async function getAdminUser(userId) {
-  requireObjectId(userId, "userId");
   const user = await User.findById(userId)
     .populate({
       path: "statusUpdatedBy",
@@ -342,7 +330,6 @@ export async function listAdminBookings(criteria) {
 }
 
 export async function getAdminBooking(bookingId) {
-  requireObjectId(bookingId, "bookingId");
   return loadAdminBooking(bookingId);
 }
 
@@ -442,7 +429,6 @@ export async function listAdminFlights(criteria) {
 }
 
 export async function getAdminFlight(flightId) {
-  requireObjectId(flightId, "flightId");
   return loadAdminFlight(flightId);
 }
 
@@ -473,8 +459,6 @@ async function rollbackAdminCancellation(booking, cancelledAt) {
 
 export async function cancelAdminBooking({ actorId, bookingId, reason }) {
   assertBookingWritesEnabled();
-  requireObjectId(actorId, "actorId");
-  requireObjectId(bookingId, "bookingId");
 
   const booking = await Booking.findById(bookingId);
   if (!booking) {
@@ -637,8 +621,6 @@ export async function updateAdminFlightSchedule({
   reason,
 }) {
   assertBookingWritesEnabled();
-  requireObjectId(actorId, "actorId");
-  requireObjectId(flightId, "flightId");
 
   const current = await Flight.findById(flightId);
   if (!current) {
@@ -669,14 +651,6 @@ export async function updateAdminFlightSchedule({
       409,
     );
   }
-  if (arrivalAt <= departureAt) {
-    throw serviceError(
-      "INVALID_FLIGHT_SCHEDULE",
-      "Arrival time must be later than departure time",
-      400,
-    );
-  }
-
   const currentDepartureAt = new Date(current.departureAt);
   const currentArrivalAt = new Date(current.arrivalAt);
   if (
@@ -792,8 +766,6 @@ export async function updateAdminFlightSchedule({
 
 export async function updateAdminFlight({ actorId, flightId, update }) {
   assertBookingWritesEnabled();
-  requireObjectId(actorId, "actorId");
-  requireObjectId(flightId, "flightId");
 
   const current = await Flight.findById(flightId);
   if (!current) {

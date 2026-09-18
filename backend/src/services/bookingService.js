@@ -14,16 +14,6 @@ import {
 const idempotencyReadAttempts = 8;
 const bookingReferenceAttempts = 2;
 
-function requireObjectId(value, fieldName) {
-  if (!mongoose.isObjectIdOrHexString(value)) {
-    throw serviceError(
-      "INVALID_ID",
-      `${fieldName} is not a valid ObjectId`,
-      400,
-    );
-  }
-}
-
 function assertBookingWritesEnabled() {
   if (process.env.BOOKING_WRITES_PAUSED === "true") {
     throw serviceError(
@@ -44,27 +34,7 @@ function toIsoString(value) {
   return value ? new Date(value).toISOString() : null;
 }
 
-function isValidPriceSnapshot(priceSnapshot, seatCount) {
-  return (
-    priceSnapshot?.currency === "USD" &&
-    Number.isSafeInteger(priceSnapshot.unitPriceCents) &&
-    priceSnapshot.unitPriceCents > 0 &&
-    Number.isSafeInteger(priceSnapshot.totalPriceCents) &&
-    priceSnapshot.totalPriceCents > 0 &&
-    priceSnapshot.totalPriceCents ===
-      priceSnapshot.unitPriceCents * seatCount
-  );
-}
-
-function toPricingResponse(priceSnapshot, seatCount) {
-  if (!isValidPriceSnapshot(priceSnapshot, seatCount)) {
-    throw serviceError(
-      "BOOKING_CONSISTENCY_ERROR",
-      "Booking pricing data is missing or invalid",
-      500,
-    );
-  }
-
+function toPricingResponse(priceSnapshot) {
   return {
     unitAmount: formatUsdAmount(priceSnapshot.unitPriceCents),
     totalAmount: formatUsdAmount(priceSnapshot.totalPriceCents),
@@ -81,9 +51,7 @@ function createPriceSnapshot(flight, seatCount) {
     currency: "USD",
   };
 
-  return isValidPriceSnapshot(priceSnapshot, seatCount)
-    ? priceSnapshot
-    : null;
+  return priceSnapshot
 }
 
 export function toBookingResponse(booking) {
@@ -102,60 +70,13 @@ export function toBookingResponse(booking) {
     bookingReference: booking.bookingReference,
     flight: populatedFlight ? toFlightResponse(populatedFlight) : null,
     seatCount: booking.seatCount,
-    pricing: toPricingResponse(booking.priceSnapshot, booking.seatCount),
+    pricing: toPricingResponse(booking.priceSnapshot),
     source: booking.source,
     status: booking.status,
     cancellation,
     createdAt: toIsoString(booking.createdAt),
     updatedAt: toIsoString(booking.updatedAt),
     cancelledAt: toIsoString(booking.cancelledAt),
-  };
-}
-
-function normalizeCreateInput({
-  userId,
-  flightId,
-  seatCount = 1,
-  source = "UI",
-  idempotencyKey,
-}) {
-  requireObjectId(userId, "userId");
-  requireObjectId(flightId, "flightId");
-
-  if (!Number.isInteger(seatCount) || seatCount < 1 || seatCount > 9) {
-    throw serviceError(
-      "INVALID_SEAT_COUNT",
-      "seatCount must be an integer from 1 to 9",
-      400,
-    );
-  }
-
-  const normalizedSource =
-    typeof source === "string" ? source.trim().toUpperCase() : source;
-  if (!["UI", "AI"].includes(normalizedSource)) {
-    throw serviceError("INVALID_SOURCE", "source must be UI or AI", 400);
-  }
-
-  const normalizedKey =
-    typeof idempotencyKey === "string"
-      ? idempotencyKey.trim().toLowerCase()
-      : "";
-  const uuidPattern =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-  if (!uuidPattern.test(normalizedKey)) {
-    throw serviceError(
-      "INVALID_IDEMPOTENCY_KEY",
-      "idempotencyKey must be a canonical UUID",
-      400,
-    );
-  }
-
-  return {
-    userId: userId.toString(),
-    flightId: flightId.toString(),
-    seatCount,
-    source: normalizedSource,
-    idempotencyKey: normalizedKey,
   };
 }
 
@@ -393,21 +314,20 @@ async function tryCreateBooking(input, referenceAttempt) {
 
 export async function createBooking(input) {
   assertBookingWritesEnabled();
-  const normalizedInput = normalizeCreateInput(input);
-  const existing = await findExistingBooking(normalizedInput);
+  const existing = await findExistingBooking(input);
   if (existing) {
-    return replayResult(existing, normalizedInput);
+    return replayResult(existing, input);
   }
 
   const userExists = await User.exists({
-    _id: normalizedInput.userId,
+    _id: input.userId,
     status: "ACTIVE",
   });
   if (!userExists) {
     throw serviceError("USER_NOT_FOUND", "Active user was not found", 404);
   }
 
-  return tryCreateBooking(normalizedInput, 1);
+  return tryCreateBooking(input, 1);
 }
 
 function isBookableFlight(flight, now) {
@@ -451,8 +371,6 @@ async function cancelledResult(booking, alreadyCancelled) {
 
 export async function cancelBooking({ userId, bookingId }) {
   assertBookingWritesEnabled();
-  requireObjectId(userId, "userId");
-  requireObjectId(bookingId, "bookingId");
 
   const booking = await Booking.findOne({ _id: bookingId, user: userId });
   if (!booking) {
@@ -590,8 +508,6 @@ export async function cancelBooking({ userId, bookingId }) {
 }
 
 export async function listBookingsForUser({ userId, page = 1, limit = 20 }) {
-  requireObjectId(userId, "userId");
-
   const filter = { user: userId };
   const skip = (page - 1) * limit;
   const [bookings, totalItems] = await Promise.all([
@@ -619,9 +535,6 @@ export async function listBookingsForUser({ userId, page = 1, limit = 20 }) {
 }
 
 export async function getBookingForUser({ userId, bookingId }) {
-  requireObjectId(userId, "userId");
-  requireObjectId(bookingId, "bookingId");
-
   const booking = await Booking.findOne({
     _id: bookingId,
     user: userId,

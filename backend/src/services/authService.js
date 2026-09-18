@@ -58,15 +58,6 @@ async function authResult(user) {
 }
 
 export async function registerUser({ email, password, displayName }) {
-  const existingUser = await User.exists({ email });
-  if (existingUser) {
-    throw serviceError(
-      "EMAIL_ALREADY_REGISTERED",
-      "An account with this email already exists",
-      409,
-    );
-  }
-
   const passwordHash = await bcrypt.hash(password, authConfig.bcryptCost);
 
   try {
