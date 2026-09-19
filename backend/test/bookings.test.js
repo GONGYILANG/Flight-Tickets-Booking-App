@@ -451,7 +451,7 @@ test("different keys atomically compete for the last seats without going negativ
   assert.equal((await Flight.findById(flight._id)).availableSeats, 0);
 });
 
-test("a known booking insert failure immediately compensates inventory", async () => {
+test("a booking insert failure rolls back the seat deduction", async () => {
   const flight = await createFlight({ totalSeats: 3 });
   const originalCreate = Booking.create;
   Booking.create = async () => {
@@ -465,14 +465,16 @@ test("a known booking insert failure immediately compensates inventory", async (
       .send(bookingRequest(flight._id))
       .expect(500);
     assert.equal(response.body.error.code, "BOOKING_CREATION_FAILED");
+    assert.equal(JSON.stringify(response.body).includes("idempotency"), false);
   } finally {
     Booking.create = originalCreate;
   }
 
   assert.equal((await Flight.findById(flight._id)).availableSeats, 3);
+  assert.equal(await Booking.countDocuments({ flight: flight._id }), 0);
 });
 
-test("an invalid Flight price is rejected and the deducted seats are compensated", async () => {
+test("an invalid Flight price rolls back the seat deduction", async () => {
   const flight = await createFlight({ totalSeats: 3 });
   await Flight.collection.updateOne(
     { _id: flight._id },
@@ -487,35 +489,6 @@ test("an invalid Flight price is rejected and the deducted seats are compensated
   assert.equal(response.body.error.code, "BOOKING_CREATION_FAILED");
   assert.equal((await Flight.findById(flight._id)).availableSeats, 3);
   assert.equal(await Booking.countDocuments({ flight: flight._id }), 0);
-});
-
-test("a failed create compensation returns a sanitized consistency error", async () => {
-  const flight = await createFlight({ totalSeats: 3 });
-  const originalCreate = Booking.create;
-  const originalFlightUpdate = Flight.updateOne;
-  Booking.create = async () => {
-    throw new Error("injected booking insert failure");
-  };
-  Flight.updateOne = async () => ({ matchedCount: 0, modifiedCount: 0 });
-
-  try {
-    const response = await request(app)
-      .post("/api/bookings")
-      .set(authorization(firstToken))
-      .send(bookingRequest(flight._id))
-      .expect(500);
-    assert.equal(response.body.error.code, "BOOKING_CONSISTENCY_ERROR");
-    assert.equal(JSON.stringify(response.body).includes("idempotency"), false);
-  } finally {
-    Booking.create = originalCreate;
-    Flight.updateOne = originalFlightUpdate;
-  }
-
-  assert.equal((await Flight.findById(flight._id)).availableSeats, 2);
-  await Flight.updateOne(
-    { _id: flight._id, availableSeats: 2 },
-    { $set: { availableSeats: 3 } },
-  );
 });
 
 test("first, repeated, and concurrent cancellation restore seats only once", async () => {
@@ -622,7 +595,7 @@ test("cancellation enforces ownership, valid IDs, and flight eligibility", async
   assert.equal((await Flight.findById(pastFlight._id)).availableSeats, 1);
 });
 
-test("a failed seat restoration rolls the booking back without adding seats", async () => {
+test("a failed seat restoration aborts the cancellation without adding seats", async () => {
   const flight = await createFlight({ totalSeats: 2 });
   const created = await request(app)
     .post("/api/bookings")
@@ -651,7 +624,7 @@ test("a failed seat restoration rolls the booking back without adding seats", as
   assert.equal(storedFlight.availableSeats, 1);
 });
 
-test("an ambiguous cancellation transition never attempts to restore seats", async () => {
+test("an ambiguous cancellation failure leaves the booking untouched", async () => {
   const flight = await createFlight({ totalSeats: 2 });
   const created = await request(app)
     .post("/api/bookings")
@@ -674,48 +647,15 @@ test("an ambiguous cancellation transition never attempts to restore seats", asy
     Booking.findOneAndUpdate = originalTransition;
   }
 
+  // The status change happened inside the transaction, so aborting it must leave
+  // no trace: no half-cancelled booking and no restored seats.
   const [booking, storedFlight] = await Promise.all([
     Booking.findById(created.body.data.booking.id),
     Flight.findById(flight._id),
   ]);
-  assert.equal(booking.status, "CANCELLED");
+  assert.equal(booking.status, "CONFIRMED");
+  assert.equal(booking.cancelledAt, null);
   assert.equal(storedFlight.availableSeats, 1);
-  await Flight.updateOne(
-    { _id: flight._id, availableSeats: 1 },
-    { $set: { availableSeats: 2 } },
-  );
-});
-
-test("an unrecoverable cancellation failure is reported for reconciliation", async () => {
-  const flight = await createFlight({ totalSeats: 2 });
-  const created = await request(app)
-    .post("/api/bookings")
-    .set(authorization(firstToken))
-    .send(bookingRequest(flight._id))
-    .expect(201);
-  const originalFlightUpdate = Flight.updateOne;
-  const originalBookingUpdate = Booking.updateOne;
-  Flight.updateOne = async () => ({ matchedCount: 0, modifiedCount: 0 });
-  Booking.updateOne = async () => ({ matchedCount: 0, modifiedCount: 0 });
-
-  try {
-    const response = await request(app)
-      .patch(`/api/bookings/${created.body.data.booking.id}/cancel`)
-      .set(authorization(firstToken))
-      .expect(500);
-    assert.equal(response.body.error.code, "BOOKING_CONSISTENCY_ERROR");
-  } finally {
-    Flight.updateOne = originalFlightUpdate;
-    Booking.updateOne = originalBookingUpdate;
-  }
-
-  const storedBooking = await Booking.findById(created.body.data.booking.id);
-  assert.equal(storedBooking.status, "CANCELLED");
-  assert.equal((await Flight.findById(flight._id)).availableSeats, 1);
-  await Flight.updateOne(
-    { _id: flight._id, availableSeats: 1 },
-    { $set: { availableSeats: 2 } },
-  );
 });
 
 test("booking detail is authenticated, owner-scoped, and returns only the DTO", async () => {
