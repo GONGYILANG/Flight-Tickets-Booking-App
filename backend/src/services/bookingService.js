@@ -11,9 +11,6 @@ import {
   toFlightResponse,
 } from "./flightService.js";
 
-const transactionAttempts = 5;
-const transactionRetryDelayMs = 20;
-
 function assertBookingWritesEnabled() {
   if (process.env.BOOKING_WRITES_PAUSED === "true") {
     throw serviceError(
@@ -22,12 +19,6 @@ function assertBookingWritesEnabled() {
       503,
     );
   }
-}
-
-function delay(milliseconds) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
-  });
 }
 
 function toIsoString(value) {
@@ -44,14 +35,11 @@ function toPricingResponse(priceSnapshot) {
 
 function createPriceSnapshot(flight, seatCount) {
   const unitPriceCents = flight.priceCents;
-  const totalPriceCents = unitPriceCents * seatCount;
-  const priceSnapshot = {
+  return {
     unitPriceCents,
-    totalPriceCents,
+    totalPriceCents: unitPriceCents * seatCount,
     currency: "USD",
   };
-
-  return priceSnapshot
 }
 
 export function toBookingResponse(booking) {
@@ -98,24 +86,11 @@ function assertIdempotentRequestMatches(booking, input) {
   }
 }
 
-async function findExistingBooking(input) {
+async function findExistingBooking(input, session = null) {
   return Booking.findOne({
     user: input.userId,
     idempotencyKey: input.idempotencyKey,
-  });
-}
-
-// A booking for this (user, idempotencyKey) may already exist because a concurrent
-// duplicate submission committed first. One read is enough: the unique index makes
-// the winner the only possible match, and it is already visible by the time any
-// conflicting error surfaces.
-async function replayIfAlreadyBooked(input) {
-  const existing = await findExistingBooking(input);
-  if (!existing) {
-    return null;
-  }
-
-  return replayResult(existing, input);
+  }).session(session);
 }
 
 async function loadBookingResponse(bookingId) {
@@ -132,14 +107,6 @@ async function loadBookingResponse(bookingId) {
   }
 
   return toBookingResponse(booking);
-}
-
-async function replayResult(existing, input) {
-  assertIdempotentRequestMatches(existing, input);
-  return {
-    booking: await loadBookingResponse(existing._id),
-    idempotentReplay: true,
-  };
 }
 
 function createBookingReference() {
@@ -165,79 +132,51 @@ function consistencyError(context) {
 }
 
 const transactionOptions = {
-  // Every read inside the transaction shares one snapshot, so the guard conditions
-  // and the writes evaluate the same data.
   readConcern: { level: "snapshot" },
   writeConcern: { w: "majority" },
   readPreference: "primary",
+  timeoutMS: 10000,
 };
 
-// The driver labels a failed transaction body with TransientTransactionError when it
-// guarantees nothing was committed, which makes replaying the body safe.
-function isTransientTransactionError(error) {
-  return error?.hasErrorLabel?.("TransientTransactionError") ?? false;
-}
-
 async function runBookingTransaction(work) {
-  for (let attempt = 1; ; attempt += 1) {
-    const session = await mongoose.startSession();
-    try {
-      session.startTransaction(transactionOptions);
-      const result = await work(session);
-      await session.commitTransaction();
-      return result;
-    } catch (error) {
-      if (session.inTransaction()) {
-        await session.abortTransaction().catch(() => {});
-      }
-
-      // Transient errors such as write conflicts are safe to replay as a whole;
-      // anything else is rethrown.
-      if (
-        attempt >= transactionAttempts ||
-        !isTransientTransactionError(error)
-      ) {
-        throw error;
-      }
-      await delay(attempt * transactionRetryDelayMs);
-    } finally {
-      await session.endSession();
-    }
+  const session = await mongoose.startSession();
+  try {
+    // The driver retries write conflicts and retries an uncertain commit without
+    // rerunning the writes. Atlas supports these cross-collection transactions.
+    return await session.withTransaction(work, transactionOptions);
+  } finally {
+    await session.endSession();
   }
 }
 
-async function tryCreateBooking(input) {
-  const now = new Date();
+export async function createBooking(input) {
+  assertBookingWritesEnabled();
   const bookingReference = createBookingReference();
   const bookingId = new mongoose.Types.ObjectId();
+  let result;
 
   try {
-    await runBookingTransaction(async (session) => {
-      // A retry can find that a concurrent request with the same key already
-      // committed. Bail out before touching the flight document: the deduction
-      // would only be rolled back, and the extra write raises the conflict rate
-      // for every other transaction on that flight.
-      const duplicate = await Booking.findOne(
-        { user: input.userId, idempotencyKey: input.idempotencyKey },
-        { _id: 1 },
-        { session },
-      ).lean();
-      if (duplicate) {
-        throw serviceError(
-          "IDEMPOTENT_REPLAY",
-          "A booking with this idempotency key is already committed",
-          409,
-        );
+    result = await runBookingTransaction(async (session) => {
+      const existing = await findExistingBooking(input, session);
+      if (existing) {
+        assertIdempotentRequestMatches(existing, input);
+        return { bookingId: existing._id, idempotentReplay: true };
       }
 
-      // Guarded update plus seat deduction. This is the single point of contention when
-      // requests race for the last seats: MongoDB serialises them, and the losers get a
-      // transient error that replays the whole transaction.
+      const userExists = await User.exists({
+        _id: input.userId,
+        status: "ACTIVE",
+      }).session(session);
+      if (!userExists) {
+        throw serviceError("USER_NOT_FOUND", "Active user was not found", 404);
+      }
+
+      // Recheck departure on every retry; the guarded decrement prevents overselling.
       const flight = await Flight.findOneAndUpdate(
         {
           _id: input.flightId,
           status: { $in: bookableFlightStatuses },
-          departureAt: { $gt: now },
+          departureAt: { $gt: new Date() },
           availableSeats: { $gte: input.seatCount },
         },
         { $inc: { availableSeats: -input.seatCount } },
@@ -271,35 +210,28 @@ async function tryCreateBooking(input) {
         ],
         { session },
       );
+      return { bookingId, idempotentReplay: false };
     });
   } catch (error) {
-    if (error?.code === "FLIGHT_NOT_FOUND_OR_SOLD_OUT") {
-      // The seats may have gone to a concurrent duplicate submission of this same
-      // request. If not, the flight really is full, departed, or unavailable.
-      const replay = await replayIfAlreadyBooked(input);
-      if (replay) {
-        return replay;
-      }
-      throw error;
-    }
-
-    if (error?.code === 11000 || error?.code === "IDEMPOTENT_REPLAY") {
-      // The unique index allows one booking per (user, idempotencyKey), so a duplicate
-      // key here always points at a booking that already committed.
-      const replay = await replayIfAlreadyBooked(input);
-      if (replay) {
-        return replay;
+    if (error?.code === 11000) {
+      // Concurrent requests can target different flights with the same key.
+      // The unique (user, idempotencyKey) index chooses the winner.
+      const existing = await findExistingBooking(input);
+      if (existing) {
+        assertIdempotentRequestMatches(existing, input);
+        return {
+          booking: await loadBookingResponse(existing._id),
+          idempotentReplay: true,
+        };
       }
     }
 
-    // Already a well-defined business error (for example a pricing failure);
-    // rethrow it untouched.
     if (error?.statusCode) {
       throw error;
     }
 
     console.error(
-      "Booking creation failed and the transaction was rolled back",
+      "Booking creation could not be confirmed",
       {
         errorName: error?.name,
         errorCode: error?.code,
@@ -309,33 +241,15 @@ async function tryCreateBooking(input) {
     );
     throw serviceError(
       "BOOKING_CREATION_FAILED",
-      "Booking could not be created; no seats were charged",
+      "Booking could not be confirmed; retry with the same idempotency key",
       500,
     );
   }
 
   return {
-    booking: await loadBookingResponse(bookingId),
-    idempotentReplay: false,
+    booking: await loadBookingResponse(result.bookingId),
+    idempotentReplay: result.idempotentReplay,
   };
-}
-
-export async function createBooking(input) {
-  assertBookingWritesEnabled();
-  const existing = await findExistingBooking(input);
-  if (existing) {
-    return replayResult(existing, input);
-  }
-
-  const userExists = await User.exists({
-    _id: input.userId,
-    status: "ACTIVE",
-  });
-  if (!userExists) {
-    throw serviceError("USER_NOT_FOUND", "Active user was not found", 404);
-  }
-
-  return tryCreateBooking(input);
 }
 
 function isBookableFlight(flight, now) {
@@ -346,29 +260,31 @@ function isBookableFlight(flight, now) {
   );
 }
 
-async function cancelledResult(booking, alreadyCancelled) {
+export async function cancelBooking({ userId, bookingId }) {
+  const alreadyCancelled = await cancelBookingRecord(
+    { _id: bookingId, user: userId },
+    { cancellationSource: "USER", cancelledBy: userId, cancellationReason: null },
+  );
   return {
-    booking: await loadBookingResponse(booking._id),
+    booking: await loadBookingResponse(bookingId),
     alreadyCancelled,
   };
 }
 
-export async function cancelBooking({ userId, bookingId }) {
+// Shared by the owner and administrator services; each supplies its own access filter.
+export async function cancelBookingRecord(filter, cancellation) {
   assertBookingWritesEnabled();
 
-  const booking = await Booking.findOne({ _id: bookingId, user: userId });
-  if (!booking) {
-    throw serviceError("BOOKING_NOT_FOUND", "Booking was not found", 404);
-  }
-  if (booking.status === "CANCELLED") {
-    return cancelledResult(booking, true);
-  }
-
-  const cancelledAt = new Date();
-  let alreadyCancelled;
-
   try {
-    alreadyCancelled = await runBookingTransaction(async (session) => {
+    return await runBookingTransaction(async (session) => {
+      const booking = await Booking.findOne(filter).session(session);
+      if (!booking) {
+        throw serviceError("BOOKING_NOT_FOUND", "Booking was not found", 404);
+      }
+      // Check the latest status on every retry before checking flight eligibility.
+      if (booking.status === "CANCELLED") return true;
+
+      const cancelledAt = new Date();
       const flight = await Flight.findById(booking.flight)
         .select("status departureAt totalSeats availableSeats")
         .session(session);
@@ -387,30 +303,23 @@ export async function cancelBooking({ userId, bookingId }) {
         );
       }
 
-      // The status guard makes this a compare-and-set: a concurrent cancellation
-      // matches nothing instead of cancelling the same booking twice.
       const transitioned = await Booking.findOneAndUpdate(
         {
-          _id: bookingId,
-          user: userId,
+          ...filter,
           status: "CONFIRMED",
         },
         {
           $set: {
             status: "CANCELLED",
             cancelledAt,
-            cancellationSource: "USER",
-            cancelledBy: userId,
-            cancellationReason: null,
+            ...cancellation,
           },
         },
-        { returnDocument: "after", session },
+        { returnDocument: "after", runValidators: true, session },
       );
 
       if (!transitioned) {
-        // Lost the race against a concurrent cancellation. Commit a read-only
-        // transaction so the inventory is never restored twice.
-        return true;
+        throw serviceError("BOOKING_NOT_CANCELLABLE", "Booking is not confirmed", 409);
       }
 
       const restoration = await Flight.updateOne(
@@ -427,10 +336,7 @@ export async function cancelBooking({ userId, bookingId }) {
       );
 
       if (restoration.matchedCount !== 1) {
-        // The status and departure guards above already passed against this
-        // snapshot, so the only guard left is availableSeats + seatCount <=
-        // totalSeats: the stored inventory is already inconsistent and has to be
-        // repaired instead of being written back blindly.
+        // Abort both writes instead of restoring more seats than the flight holds.
         throw consistencyError({
           operation: "CANCEL_RESTORE_GUARD_FAILED",
           bookingId: transitioned._id,
@@ -446,22 +352,19 @@ export async function cancelBooking({ userId, bookingId }) {
     }
 
     console.error(
-      "Booking cancellation failed and the transaction was rolled back",
+      "Booking cancellation could not be confirmed",
       {
         errorName: error?.name,
         errorCode: error?.code,
-        bookingId: bookingId?.toString(),
-        flightId: booking.flight?.toString(),
+        bookingId: filter._id?.toString(),
       },
     );
-    throw consistencyError({
-      operation: "CANCEL_TRANSACTION_FAILED",
-      bookingId,
-      flightId: booking.flight,
-    });
+    throw serviceError(
+      "BOOKING_CANCELLATION_FAILED",
+      "Cancellation could not be confirmed; retry cancellation for the same booking",
+      500,
+    );
   }
-
-  return cancelledResult(booking, alreadyCancelled);
 }
 
 export async function listBookingsForUser({ userId, page = 1, limit = 20 }) {
@@ -469,10 +372,7 @@ export async function listBookingsForUser({ userId, page = 1, limit = 20 }) {
   const skip = (page - 1) * limit;
   const [bookings, totalItems] = await Promise.all([
     Booking.find(filter)
-      // Cosmos DB for MongoDB requires the equality-filtered index prefix in
-      // the multi-field ORDER BY. Since every row has the same user here,
-      // this is equivalent to ordering by createdAt and _id alone.
-      .sort({ user: 1, createdAt: -1, _id: -1 })
+      .sort({ createdAt: -1, _id: -1 })
       .skip(skip)
       .limit(limit)
       .populate({ path: "flight", populate: flightPopulate })

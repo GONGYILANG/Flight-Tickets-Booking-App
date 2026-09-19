@@ -64,7 +64,7 @@ async function migrateBookingIndexes() {
 
     if (bookingCount === 0) {
       throw new Error(
-        "Cosmos DB refused the compound unique index on the empty collection. " +
+        "MongoDB could not create the compound unique index on the empty collection. " +
           "Re-run with --rebuild-empty to explicitly rebuild only the empty bookings collection.",
       );
     }

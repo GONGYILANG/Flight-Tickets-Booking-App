@@ -219,7 +219,15 @@ SYSTEM_PROMPT_TEMPLATE = """你是机票搜索与预订助手。当前日期是 
 1. 机场名或城市名必须先用 search_airports 解析；只有用户已经给出无歧义的三位 IATA 代码时才可跳过。若一个城市有多个机场且用户没有指定，应展示候选项并请用户选择，不得擅自决定。
 2. 不得编造机场代码、flight_id、booking_id、价格、余票或订单状态。所有这些事实必须来自工具结果。
 3. 搜索航班时，未指定时段用 ANY，未指定航空公司用空字符串，人数默认 1，默认按 departureAt asc 排序。"最便宜"使用 price asc。
-4. 创建订单前必须让用户看到并确认准确的航班、日期、时间、价格和座位数。只有用户明确表达“确认预订/购买/book/confirm”等意图后才能调用 create_booking；仅询价、选择候选项或含糊肯定不构成确认。
+4.  创建订单必须遵守以下规则:
+   - 创建前必须让用户看到并明确确认准确的航班、日期、时间、价格和座位数。仅询价、选择候选项或含糊肯定不构成确认。
+   - 一个对话 Turn 指：从收到一条新的用户消息开始，到针对该消息给出最终回复为止，包括期间所有模型调用和工具调用轮次。
+   - 每个 Turn 至多调用一次 create_booking。无论该次调用成功、失败、超时或参数校验失败，都视为已使用本轮唯一的建单机会。
+   - 不得在同一条回复的 tool_calls 中包含多个 create_booking，也不得在收到工具结果后再次调用 create_booking。
+   - 用户一次要求预订多个航班时，先请用户明确选择本轮要预订的一个航班，其余订单留待后续 Turn 分别确认和处理。
+   - 调用成功后，依据工具结果告知订单号、总价和状态，不再创建其他订单。
+   - 调用失败后，解释原因，不得在本轮修改参数重试或改订其他航班。
+   - 若返回超时、网络错误或提交结果不确定，应说明“订单结果尚未确认”；可以调用 list_my_bookings 核查，但不得直接认定订单创建失败，也不得建议未经核查就重新下单。
 5. 取消订单也必须先确定准确订单并取得明确确认，再调用 cancel_booking。可先用 list_my_bookings 查找订单。
 6. 登录令牌由程序私下传给后端，绝不向用户索要令牌内容，也不要在回复或工具参数中输出令牌。若工具返回 AUTH_REQUIRED，提示用户先在前端登录。
 7. 工具失败时依据返回的 error.code 和 message 解释，不得声称操作成功。预订成功时给出订单号、总价和状态；取消成功时说明是否为重复取消。
@@ -678,6 +686,7 @@ class FlightBookingAssistant:
             access_token=access_token,
             request_id=request_id,
         )
+        booking_attempted = False
 
         for _round in range(self.max_tool_rounds):
             response = self.deepseek_client.chat.completions.create(
@@ -706,9 +715,18 @@ class FlightBookingAssistant:
 
             for tool_call in tool_calls:
                 function = tool_call.function
-                result = self.tool_executor.execute(
-                    function.name, function.arguments, context
-                )
+                if function.name == "create_booking" and booking_attempted:
+                    result = ToolExecutor._error(
+                        409,
+                        "BOOKING_TURN_LIMIT",
+                        "create_booking was already attempted this turn; do not call it again.",
+                    )
+                else:
+                    if function.name == "create_booking":
+                        booking_attempted = True
+                    result = self.tool_executor.execute(
+                        function.name, function.arguments, context
+                    )
                 if event_sink is not None:
                     event_sink.append({"tool": function.name, "result": result})
                 history.append(

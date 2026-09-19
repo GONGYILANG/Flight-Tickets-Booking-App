@@ -255,6 +255,57 @@ class FakeCompletions:
 
 
 class AssistantLoopTests(unittest.TestCase):
+    def test_booking_attempt_is_limited_across_batches_and_resets_next_turn(self) -> None:
+        arguments = json.dumps({"flight_id": FLIGHT_ID, "seat_count": 1})
+
+        def call(call_id: str, name: str, args: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                id=call_id, function=SimpleNamespace(name=name, arguments=args)
+            )
+
+        for first_arguments in (arguments, "invalid JSON"):
+            with self.subTest(first_arguments=first_arguments):
+                final = SimpleNamespace(content="Done", tool_calls=None)
+                completions = FakeCompletions([
+                    SimpleNamespace(content=None, tool_calls=[
+                        call("first", "create_booking", first_arguments),
+                        call("same_batch", "create_booking", arguments),
+                        call("lookup", "list_my_bookings", '{"page":1}'),
+                    ]),
+                    SimpleNamespace(content=None, tool_calls=[
+                        call("next_batch", "create_booking", arguments),
+                    ]),
+                    final,
+                    SimpleNamespace(content=None, tool_calls=[
+                        call("next_turn", "create_booking", arguments),
+                    ]),
+                    final,
+                ])
+                backend = FakeBackend()
+                assistant = resolution.FlightBookingAssistant(
+                    deepseek_client=SimpleNamespace(chat=SimpleNamespace(completions=completions)),
+                    tool_executor=resolution.ToolExecutor(backend),
+                )
+                history = assistant.new_history()
+                events: list[dict] = []
+                assistant.respond(history, "Confirm booking", access_token="token",
+                                  request_id=str(uuid.uuid4()), event_sink=events)
+
+                first_count = int(first_arguments == arguments)
+                self.assertEqual(sum(item[0] == "create_booking" for item in backend.calls), first_count)
+                self.assertEqual(len(events), 4)
+                self.assertEqual(events[0]["result"]["ok"], bool(first_count))
+                for index in (1, 3):
+                    self.assertEqual(events[index]["result"]["error"]["code"], "BOOKING_TURN_LIMIT")
+                self.assertTrue(events[2]["result"]["ok"])
+                replies = [item for item in history if isinstance(item, dict) and item.get("role") == "tool"]
+                self.assertEqual([item["tool_call_id"] for item in replies],
+                                 ["first", "same_batch", "lookup", "next_batch"])
+
+                assistant.respond(history, "Confirm another booking", access_token="token",
+                                  request_id=str(uuid.uuid4()))
+                self.assertEqual(sum(item[0] == "create_booking" for item in backend.calls), first_count + 1)
+
     def test_default_model_matches_environment_bootstrap_and_allows_override(self) -> None:
         direct = resolution.FlightBookingAssistant(deepseek_client=None, tool_executor=None)
         self.assertEqual(direct.model, "deepseek-v4-flash")

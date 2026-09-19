@@ -4,7 +4,7 @@ import Airport from "../models/Airport.js";
 import Booking from "../models/Booking.js";
 import Flight from "../models/Flight.js";
 import User from "../models/User.js";
-import { toBookingResponse } from "./bookingService.js";
+import { cancelBookingRecord, toBookingResponse } from "./bookingService.js";
 import {
   bookableFlightStatuses,
   flightPopulate,
@@ -432,129 +432,12 @@ export async function getAdminFlight(flightId) {
   return loadAdminFlight(flightId);
 }
 
-async function rollbackAdminCancellation(booking, cancelledAt) {
-  try {
-    const result = await Booking.updateOne(
-      {
-        _id: booking._id,
-        status: "CANCELLED",
-        cancelledAt,
-        cancellationSource: "ADMIN",
-      },
-      {
-        $set: {
-          status: "CONFIRMED",
-          cancelledAt: null,
-          cancellationSource: null,
-          cancelledBy: null,
-          cancellationReason: null,
-        },
-      },
-    );
-    return result.matchedCount === 1;
-  } catch (_error) {
-    return false;
-  }
-}
-
 export async function cancelAdminBooking({ actorId, bookingId, reason }) {
-  assertBookingWritesEnabled();
-
-  const booking = await Booking.findById(bookingId);
-  if (!booking) {
-    throw serviceError("BOOKING_NOT_FOUND", "Booking was not found", 404);
-  }
-  if (booking.status === "CANCELLED") {
-    return { booking: await loadAdminBooking(bookingId), alreadyCancelled: true };
-  }
-
-  const now = new Date();
-  const flight = await Flight.findById(booking.flight).select(
-    "status departureAt totalSeats availableSeats",
+  const alreadyCancelled = await cancelBookingRecord(
+    { _id: bookingId },
+    { cancellationSource: "ADMIN", cancelledBy: actorId, cancellationReason: reason },
   );
-  if (
-    !flight ||
-    !bookableFlightStatuses.includes(flight.status) ||
-    new Date(flight.departureAt) <= now
-  ) {
-    throw serviceError(
-      "BOOKING_NOT_CANCELLABLE",
-      "Only bookings for upcoming scheduled or delayed flights can be cancelled",
-      409,
-    );
-  }
-
-  let transitioned;
-  try {
-    transitioned = await Booking.findOneAndUpdate(
-      { _id: bookingId, status: "CONFIRMED" },
-      {
-        $set: {
-          status: "CANCELLED",
-          cancelledAt: now,
-          cancellationSource: "ADMIN",
-          cancelledBy: actorId,
-          cancellationReason: reason,
-        },
-      },
-      { returnDocument: "after", runValidators: true },
-    );
-  } catch (_error) {
-    throw adminConsistencyError("ADMIN_CANCEL_TRANSITION_UNKNOWN", {
-      bookingId,
-      flightId: booking.flight,
-    });
-  }
-
-  if (!transitioned) {
-    const current = await Booking.findById(bookingId);
-    if (!current) {
-      throw serviceError("BOOKING_NOT_FOUND", "Booking was not found", 404);
-    }
-    if (current.status === "CANCELLED") {
-      return { booking: await loadAdminBooking(bookingId), alreadyCancelled: true };
-    }
-    throw serviceError(
-      "BOOKING_NOT_CANCELLABLE",
-      "Booking could not be cancelled in its current state",
-      409,
-    );
-  }
-
-  let restoration;
-  try {
-    restoration = await Flight.updateOne(
-      {
-        _id: flight._id,
-        status: { $in: bookableFlightStatuses },
-        departureAt: { $gt: now },
-        availableSeats: { $lte: flight.totalSeats - transitioned.seatCount },
-      },
-      { $inc: { availableSeats: transitioned.seatCount } },
-    );
-  } catch (_error) {
-    throw adminConsistencyError("ADMIN_CANCEL_RESTORE_UNKNOWN", {
-      bookingId,
-      flightId: flight._id,
-    });
-  }
-
-  if (restoration.matchedCount !== 1) {
-    const rolledBack = await rollbackAdminCancellation(transitioned, now);
-    if (!rolledBack) {
-      throw adminConsistencyError("ADMIN_CANCEL_RESTORE_ROLLBACK_FAILED", {
-        bookingId,
-        flightId: flight._id,
-      });
-    }
-    throw serviceError(
-      "BOOKING_NOT_CANCELLABLE",
-      "The flight is no longer eligible for cancellation",
-      409,
-    );
-  }
-
-  return { booking: await loadAdminBooking(bookingId), alreadyCancelled: false };
+  return { booking: await loadAdminBooking(bookingId), alreadyCancelled };
 }
 
 function assertStatusTransition(currentStatus, requestedStatus) {

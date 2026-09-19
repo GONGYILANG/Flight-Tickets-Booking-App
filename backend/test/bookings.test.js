@@ -432,14 +432,14 @@ test("concurrent retries with one key create one booking and deduct once", async
   assert.equal((await Flight.findById(flight._id)).availableSeats, 4);
 });
 
-test("different keys atomically compete for the last seats without going negative", async () => {
-  const flight = await createFlight({ totalSeats: 2 });
+test("multiple users atomically compete for the last seats without going negative", async () => {
+  const flight = await createFlight({ totalSeats: 4 });
   const responses = await Promise.all(
-    Array.from({ length: 6 }, () =>
+    Array.from({ length: 6 }, (_, index) =>
       request(app)
         .post("/api/bookings")
-        .set(authorization(firstToken))
-        .send(bookingRequest(flight._id)),
+        .set(authorization(index % 2 ? firstToken : secondToken))
+        .send(bookingRequest(flight._id, randomUUID(), { seatCount: 2 })),
     ),
   );
 
@@ -449,10 +449,122 @@ test("different keys atomically compete for the last seats without going negativ
     assert.equal(response.body.error.code, "FLIGHT_NOT_FOUND_OR_SOLD_OUT");
   }
   assert.equal((await Flight.findById(flight._id)).availableSeats, 0);
+  assert.equal(await Booking.countDocuments({ flight: flight._id }), 2);
+});
+
+test("concurrent reuse of a key for different flights rolls back the losing deduction", async () => {
+  const flights = await Promise.all([createFlight(), createFlight()]);
+  const key = randomUUID();
+  const responses = await Promise.all(flights.map((flight) =>
+    request(app).post("/api/bookings").set(authorization(firstToken))
+      .send(bookingRequest(flight._id, key)),
+  ));
+  assert.deepEqual(responses.map(({ status }) => status).sort(), [201, 409]);
+  assert.equal(responses.find(({ status }) => status === 409).body.error.code,
+    "IDEMPOTENCY_KEY_CONFLICT");
+  const stored = await Flight.find({ _id: { $in: flights.map(({ _id }) => _id) } });
+  assert.equal(stored.reduce((sum, flight) => sum + flight.availableSeats, 0), 19);
+  assert.equal(await Booking.countDocuments({ user: firstUser._id, idempotencyKey: key }), 1);
+});
+
+test("a transient failure after inserting the booking retries the whole transaction once", async (t) => {
+  const flight = await createFlight({ totalSeats: 3 });
+  const key = randomUUID();
+  const originalCreate = Booking.create;
+  let calls = 0;
+  t.mock.method(Booking, "create", async function (...args) {
+    const result = await originalCreate.apply(this, args);
+    if (++calls === 1) {
+      throw new mongoose.mongo.MongoServerError({
+        message: "injected write conflict",
+        code: 112,
+        errorLabels: ["TransientTransactionError"],
+      });
+    }
+    return result;
+  });
+  await request(app).post("/api/bookings").set(authorization(firstToken))
+    .send(bookingRequest(flight._id, key)).expect(201);
+  assert.equal(calls, 2);
+  assert.equal(await Booking.countDocuments({ flight: flight._id }), 1);
+  assert.equal((await Flight.findById(flight._id)).availableSeats, 2);
+});
+
+for (const operation of ["create", "cancel"]) {
+  for (const uncertainResult of [false, true]) {
+    test(`${operation}: lost commit reply ${uncertainResult ? "reports uncertainty and allows safe replay" : "retries only the commit"}`, async (t) => {
+      const flight = await createFlight({ totalSeats: 3 });
+      const body = bookingRequest(flight._id);
+      let bookingId;
+      if (operation === "cancel") {
+        const created = await request(app).post("/api/bookings")
+          .set(authorization(firstToken)).send(body).expect(201);
+        bookingId = created.body.data.booking.id;
+      }
+
+      const originalStart = mongoose.startSession.bind(mongoose);
+      let commitCalls = 0;
+      t.mock.method(mongoose, "startSession", async () => {
+        const session = await originalStart();
+        const originalCommit = session.commitTransaction.bind(session);
+        session.commitTransaction = async (...args) => {
+          await originalCommit(...args);
+          if (++commitCalls === 1) {
+            // Code 50 makes the driver stop retrying an uncertain commit.
+            throw new mongoose.mongo.MongoServerError({
+              message: "injected lost commit reply",
+              code: uncertainResult ? 50 : 64,
+              errorLabels: ["UnknownTransactionCommitResult"],
+            });
+          }
+        };
+        return session;
+      });
+
+      const send = () => operation === "create"
+        ? request(app).post("/api/bookings").set(authorization(firstToken)).send(body)
+        : request(app).patch(`/api/bookings/${bookingId}/cancel`).set(authorization(firstToken));
+      const response = await send().expect(uncertainResult ? 500 : operation === "create" ? 201 : 200);
+      assert.equal(commitCalls, uncertainResult ? 1 : 2);
+      if (uncertainResult) {
+        assert.equal(response.body.error.code,
+          operation === "create" ? "BOOKING_CREATION_FAILED" : "BOOKING_CANCELLATION_FAILED");
+        assert.match(response.body.error.message, /could not be confirmed/);
+      } else {
+        assert.equal(response.body.meta[operation === "create" ? "idempotentReplay" : "alreadyCancelled"], false);
+      }
+      t.mock.restoreAll();
+
+      const replay = await send().expect(200);
+      assert.equal(replay.body.meta[operation === "create" ? "idempotentReplay" : "alreadyCancelled"], true);
+      assert.equal(await Booking.countDocuments({ flight: flight._id }), 1);
+      assert.equal((await Flight.findById(flight._id)).availableSeats, operation === "create" ? 2 : 3);
+    });
+  }
+}
+
+test("concurrent cancellation and new bookings preserve inventory across users", async () => {
+  const flight = await createFlight({ totalSeats: 3 });
+  const created = await request(app).post("/api/bookings")
+    .set(authorization(firstToken))
+    .send(bookingRequest(flight._id, randomUUID(), { seatCount: 2 })).expect(201);
+  const [cancelled, ...responses] = await Promise.all([
+    request(app).patch(`/api/bookings/${created.body.data.booking.id}/cancel`)
+      .set(authorization(firstToken)),
+    ...Array.from({ length: 6 }, () => request(app).post("/api/bookings")
+      .set(authorization(secondToken)).send(bookingRequest(flight._id))),
+  ]);
+  assert.equal(cancelled.status, 200);
+  assert.ok(responses.every(({ status }) => status === 201 || status === 409));
+  const confirmed = await Booking.find({ flight: flight._id, status: "CONFIRMED" });
+  const stored = await Flight.findById(flight._id);
+  assert.equal(stored.availableSeats + confirmed.reduce((sum, booking) => sum + booking.seatCount, 0), 3);
+  assert.ok(stored.availableSeats >= 0 && stored.availableSeats <= 3);
 });
 
 test("a booking insert failure rolls back the seat deduction", async () => {
   const flight = await createFlight({ totalSeats: 3 });
+  const key = randomUUID();
   const originalCreate = Booking.create;
   Booking.create = async () => {
     throw new Error("injected booking insert failure");
@@ -462,10 +574,10 @@ test("a booking insert failure rolls back the seat deduction", async () => {
     const response = await request(app)
       .post("/api/bookings")
       .set(authorization(firstToken))
-      .send(bookingRequest(flight._id))
+      .send(bookingRequest(flight._id, key))
       .expect(500);
     assert.equal(response.body.error.code, "BOOKING_CREATION_FAILED");
-    assert.equal(JSON.stringify(response.body).includes("idempotency"), false);
+    assert.equal(JSON.stringify(response.body).includes(key), false);
   } finally {
     Booking.create = originalCreate;
   }
@@ -595,6 +707,32 @@ test("cancellation enforces ownership, valid IDs, and flight eligibility", async
   assert.equal((await Flight.findById(pastFlight._id)).availableSeats, 1);
 });
 
+test("a cancellation retry recognizes the winner even if the flight has since departed", async (t) => {
+  const flight = await createFlight({ totalSeats: 2 });
+  const created = await request(app).post("/api/bookings").set(authorization(firstToken))
+    .send(bookingRequest(flight._id)).expect(201);
+  const url = `/api/bookings/${created.body.data.booking.id}/cancel`;
+  const originalFind = Flight.findById;
+  let raced = false;
+  t.mock.method(Flight, "findById", function (...args) {
+    const query = originalFind.apply(this, args);
+    const originalExec = query.exec;
+    query.exec = async function (...execArgs) {
+      if (!raced && this.getOptions().session) {
+        raced = true;
+        await request(app).patch(url).set(authorization(firstToken)).expect(200);
+        await Flight.updateOne({ _id: flight._id }, { $set: { status: "DEPARTED" } });
+      }
+      return originalExec.apply(this, execArgs);
+    };
+    return query;
+  });
+  const response = await request(app).patch(url).set(authorization(firstToken)).expect(200);
+  assert.equal(raced, true);
+  assert.equal(response.body.meta.alreadyCancelled, true);
+  assert.equal((await Flight.findById(flight._id)).availableSeats, 2);
+});
+
 test("a failed seat restoration aborts the cancellation without adding seats", async () => {
   const flight = await createFlight({ totalSeats: 2 });
   const created = await request(app)
@@ -624,7 +762,7 @@ test("a failed seat restoration aborts the cancellation without adding seats", a
   assert.equal(storedFlight.availableSeats, 1);
 });
 
-test("an ambiguous cancellation failure leaves the booking untouched", async () => {
+test("a failure inside the cancellation body rolls back the booking change", async () => {
   const flight = await createFlight({ totalSeats: 2 });
   const created = await request(app)
     .post("/api/bookings")
@@ -642,7 +780,7 @@ test("an ambiguous cancellation failure leaves the booking untouched", async () 
       .patch(`/api/bookings/${created.body.data.booking.id}/cancel`)
       .set(authorization(firstToken))
       .expect(500);
-    assert.equal(response.body.error.code, "BOOKING_CONSISTENCY_ERROR");
+    assert.equal(response.body.error.code, "BOOKING_CANCELLATION_FAILED");
   } finally {
     Booking.findOneAndUpdate = originalTransition;
   }
@@ -740,11 +878,10 @@ test("/me isolates users, uses stable pagination, and returns only the DTO", asy
     .get("/api/bookings/me")
     .set(authorization(secondToken))
     .expect(200);
-  assert.ok(
-    secondUserResponse.body.data.bookings.every(
-      ({ id }) => id === secondUserBookingId,
-    ),
-  );
+  const secondUserBookings = await Booking.find({ user: secondUser._id })
+    .sort({ createdAt: -1, _id: -1 }).limit(20);
+  assert.deepEqual(secondUserResponse.body.data.bookings.map(({ id }) => id),
+    secondUserBookings.map(({ _id }) => _id.toString()));
 });
 
 test("Booking indexes are user-scoped and support stable pagination", async () => {

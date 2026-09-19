@@ -347,6 +347,39 @@ test("concurrent administrator cancellation restores inventory once", async () =
   assert.equal((await Flight.findById(flight._id)).availableSeats, 3);
 });
 
+test("user and administrator cancellation compete without restoring twice", async () => {
+  const flight = await createFlight({ totalSeats: 3, availableSeats: 1 });
+  const booking = await Booking.create(bookingData({ user: normalUser, flight, seatCount: 2 }));
+  const responses = await Promise.all([
+    request(app).patch(`/api/bookings/${booking._id}/cancel`).set(authorization(normalToken)),
+    request(app).patch(`/api/admin/bookings/${booking._id}/cancel`)
+      .set(authorization(adminToken)).send({ reason: "Concurrent support request" }),
+  ]);
+  assert.ok(responses.every(({ status }) => status === 200));
+  assert.equal(responses.filter(({ body }) => !body.meta.alreadyCancelled).length, 1);
+  assert.equal((await Flight.findById(flight._id)).availableSeats, 3);
+  const stored = await Booking.findById(booking._id);
+  assert.equal(stored.status, "CANCELLED");
+  assert.ok(stored.cancelledBy.equals(stored.cancellationSource === "ADMIN" ? admin._id : normalUser._id));
+});
+
+test("administrator cancellation rolls back both writes after a restoration error", async (t) => {
+  const flight = await createFlight({ totalSeats: 3, availableSeats: 1 });
+  const booking = await Booking.create(bookingData({ user: normalUser, flight, seatCount: 2 }));
+  const originalUpdate = Flight.updateOne;
+  t.mock.method(Flight, "updateOne", async function (...args) {
+    await originalUpdate.apply(this, args);
+    throw new Error("injected restoration reply failure");
+  });
+  const response = await request(app).patch(`/api/admin/bookings/${booking._id}/cancel`)
+    .set(authorization(adminToken)).send({ reason: "Support cancellation" }).expect(500);
+  assert.equal(response.body.error.code, "BOOKING_CANCELLATION_FAILED");
+  const stored = await Booking.findById(booking._id);
+  assert.equal(stored.status, "CONFIRMED");
+  assert.equal(stored.cancelledAt, null);
+  assert.equal((await Flight.findById(flight._id)).availableSeats, 1);
+});
+
 test("flight price updates preserve old snapshots and affect new bookings", async () => {
   const flight = await createFlight({ totalSeats: 5, availableSeats: 4 });
   const oldBooking = await Booking.create(

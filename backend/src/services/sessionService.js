@@ -56,10 +56,10 @@ export async function createSession({ userId, sessionId }) {
 }
 
 export async function listSessionsForUser({ userId }) {
-  // ponytail: return all summaries for sidebar restoration; paginate if histories grow large.
+  // return all summaries for sidebar restoration; paginate if histories grow large.
   const sessions = await Session.find({ user: userId, deleting: { $ne: true } })
     .select("sessionId title createdAt updatedAt lastAccess")
-    .sort({ user: 1, lastAccess: -1, _id: -1 })
+    .sort({ lastAccess: -1, _id: -1 })
     .lean();
   return { sessions: sessions.map(toSessionSummary) };
 }
@@ -73,7 +73,7 @@ export async function getSessionForUser({ userId, sessionId }) {
   if (!session) {
     throw sessionNotFound();
   }
-  const turns = await Turn.find({ session: session._id }).sort({ session: 1, sequence: 1 }).lean();
+  const turns = await Turn.find({ session: session._id }).sort({ sequence: 1 }).lean();
   return { ...toSessionSummary(session), turns: turns.map(toTurnResponse) };
 }
 
@@ -165,8 +165,8 @@ export async function finishTurn({ userId, sessionId, turnId, status, messages, 
 }
 
 export async function deleteSessionForUser({ userId, sessionId }) {
-  // No cross-collection transaction requirement (the deployment uses Cosmos MongoDB).
-  // The durable marker hides the session and lets a failed deletion be retried safely.
+  // The marker also fences in-flight turn writes through touchSession, so a delete
+  // cannot leave orphan turns. Keep it even though Atlas supports transactions.
   const session = await Session.findOneAndUpdate(
     { sessionId, user: userId },
     { $set: { deleting: true } },

@@ -507,6 +507,8 @@ Booking endpoints operate only on the user identified by the Bearer token. A cli
 
 Creates a simulated booking and atomically decrements available seats.
 
+Creation and individual cancellation use MongoDB Atlas cross-collection transactions. Keep the unique `{ user: 1, idempotencyKey: 1 }` booking index deployed. The driver retries transient write conflicts and uncertain commit acknowledgements within a 10-second transaction timeout.
+
 ```json
 {
   "flightId": "66a1b2c3d4e5f67890123456",
@@ -539,6 +541,8 @@ Initial creation returns `201`:
 ```
 
 An idempotent replay returns `200` with the same booking and `meta.idempotentReplay=true`.
+
+On a timeout or `500 BOOKING_CREATION_FAILED`, the commit outcome may be unknown. Retry the original payload with the same idempotency key; do not generate a new key for that retry.
 
 A flight must exist, be in the future, have status `SCHEDULED` or `DELAYED`, and have `availableSeats >= seatCount`.
 
@@ -604,6 +608,8 @@ Cancels a confirmed booking owned by the current user and restores its seats. Th
 ```
 
 Repeated or concurrent cancellation returns the same booking with `meta.alreadyCancelled=true` and never restores seats twice.
+
+User and administrator cancellation share the same transaction for the booking status and inventory. On `500 BOOKING_CANCELLATION_FAILED` or a timeout, retry cancellation for the same booking. A failed acknowledgement does not prove that the transaction was rolled back.
 
 Common errors include `400 INVALID_REQUEST`, `404 BOOKING_NOT_FOUND`, `409 BOOKING_NOT_CANCELLABLE`, `503 BOOKING_WRITES_PAUSED`, and `500 BOOKING_CONSISTENCY_ERROR`.
 
