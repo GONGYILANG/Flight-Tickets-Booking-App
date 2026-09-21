@@ -110,6 +110,32 @@ class ToolSchemaTests(unittest.TestCase):
 
 
 class BackendClientTests(unittest.TestCase):
+    def test_session_endpoints_forward_ids_bodies_and_bearer_tokens(self) -> None:
+        client = resolution.BackendClient("http://localhost:3000")
+        session_id, turn_id = str(uuid.uuid4()), str(uuid.uuid4())
+        messages = [{"role": "user", "content": "Hello"}]
+        base = f"/api/sessions/{session_id}"
+        cases = [
+            (lambda: client.create_session(session_id, "jwt"), "POST", "/api/sessions", {"sessionId": session_id}),
+            (lambda: client.list_sessions("jwt"), "GET", "/api/sessions", None),
+            (lambda: client.get_session(session_id, "jwt"), "GET", base, None),
+            (lambda: client.start_turn(session_id, turn_id, "Hello", "jwt"), "POST", base + "/turns",
+             {"turnId": turn_id, "message": "Hello"}),
+            (lambda: client.finish_turn(session_id, turn_id, messages, "jwt", status="failed", error="Stopped"),
+             "POST", base + f"/turns/{turn_id}/finish", {"status": "failed", "messages": messages, "error": "Stopped"}),
+            (lambda: client.delete_session(session_id, "jwt"), "DELETE", base, None),
+        ]
+        for invoke, method, path, body in cases:
+            with self.subTest(method=method, path=path), patch(
+                f"{resolution.__name__}.urlopen", return_value=FakeHTTPResponse(200, {}),
+            ) as urlopen:
+                invoke()
+                request = urlopen.call_args.args[0]
+                self.assertEqual(request.full_url, "http://localhost:3000" + path)
+                self.assertEqual(request.method, method)
+                self.assertEqual(request.headers["Authorization"], "Bearer jwt")
+                self.assertEqual(json.loads(request.data) if request.data else None, body)
+
     def test_create_booking_maps_body_and_authorization(self) -> None:
         client = resolution.BackendClient("http://localhost:3000")
         response = FakeHTTPResponse(201, {"data": {"booking": {}}})
@@ -308,7 +334,7 @@ class AssistantLoopTests(unittest.TestCase):
 
     def test_default_model_matches_environment_bootstrap_and_allows_override(self) -> None:
         direct = resolution.FlightBookingAssistant(deepseek_client=None, tool_executor=None)
-        self.assertEqual(direct.model, "deepseek-v4-flash")
+        self.assertEqual(direct.model, "deepseek-flash")
         for model in (None, "custom-model"):
             env = {"DEEPSEEK_API_KEY": "test-key"}
             if model is not None:

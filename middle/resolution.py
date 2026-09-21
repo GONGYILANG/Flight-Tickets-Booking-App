@@ -33,7 +33,7 @@ except ImportError:  # Lets the standard-library unit tests run before install.
 
 
 LOGGER = logging.getLogger(__name__)
-DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_MODEL = "deepseek-flash"
 
 OBJECT_ID_PATTERN = re.compile(r"^[0-9a-fA-F]{24}$")
 IATA_PATTERN = re.compile(r"^[A-Z]{3}$")
@@ -334,6 +334,41 @@ class BackendClient:
     def get_me(self, access_token: str) -> BackendResponse:
         return self._request("GET", "/api/auth/me", access_token=access_token)
 
+    def create_session(self, session_id: str, access_token: str) -> BackendResponse:
+        return self._request(
+            "POST", "/api/sessions", json_body={"sessionId": session_id},
+            access_token=access_token,
+        )
+
+    def list_sessions(self, access_token: str) -> BackendResponse:
+        return self._request("GET", "/api/sessions", access_token=access_token)
+
+    def get_session(self, session_id: str, access_token: str) -> BackendResponse:
+        return self._request("GET", f"/api/sessions/{session_id}", access_token=access_token)
+
+    def start_turn(
+        self, session_id: str, turn_id: str, message: str, access_token: str,
+    ) -> BackendResponse:
+        return self._request(
+            "POST", f"/api/sessions/{session_id}/turns",
+            json_body={"turnId": turn_id, "message": message}, access_token=access_token,
+        )
+
+    def finish_turn(
+        self, session_id: str, turn_id: str, messages: list[dict[str, Any]],
+        access_token: str, *, status: str = "completed", error: str | None = None,
+    ) -> BackendResponse:
+        body: dict[str, Any] = {"status": status, "messages": messages}
+        if error is not None:
+            body["error"] = error
+        return self._request(
+            "POST", f"/api/sessions/{session_id}/turns/{turn_id}/finish",
+            json_body=body, access_token=access_token,
+        )
+
+    def delete_session(self, session_id: str, access_token: str) -> BackendResponse:
+        return self._request("DELETE", f"/api/sessions/{session_id}", access_token=access_token)
+
     def search_airports(self, query: str, limit: int) -> BackendResponse:
         return self._request(
             "GET", "/api/airports/search", query={"q": query, "limit": limit}
@@ -627,6 +662,14 @@ class ToolExecutor:
         return self._from_backend(
             self.backend.cancel_booking(booking_id, access_token)
         )
+
+
+def serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
+    """Preserve complete SDK messages, including reasoning and tool-call arguments."""
+    return [
+        message if isinstance(message, dict) else message.model_dump(mode="json")
+        for message in messages
+    ]
 
 
 class FlightBookingAssistant:

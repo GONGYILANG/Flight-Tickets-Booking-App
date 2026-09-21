@@ -27,13 +27,15 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8000 --workers 1
 
 Open [Swagger UI](http://127.0.0.1:8000/docs). Log in through the backend's `POST /api/auth/login`, copy `data.accessToken`, and paste the JWT into **Authorize** without the `Bearer` prefix.
 
-The default model is `deepseek-v4-flash`. Backend URL, model, CORS origins, timeouts, and session limits are configured in [.env.example](.env.example).
+The default model is `deepseek-flash`. Backend URL, model, CORS origins, and timeouts are configured in [.env.example](.env.example). The backend must provide the Session/Turn APIs and their indexes. Conversation data is durable; run one worker and one service replica because execution locks remain process-local.
 
 ## FastAPI routes
 
 | Method | Route | Purpose | JWT required |
 | --- | --- | --- | --- |
 | POST | `/api/chat` | Process a chat message and return text plus tool events. | Yes |
+| GET | `/api/chat/sessions` | Return every current-user session summary for the sidebar. | Yes |
+| GET | `/api/chat/sessions/{session_id}` | Return every ordered turn's saved view, status, error and timestamps. | Yes |
 | DELETE | `/api/chat/{session_id}` | Clear the current user's conversation; returns 204. Does not cancel bookings. | Yes |
 | GET | `/health` | Report middleware status and backend health. Inspect the nested `backend` result. | No |
 
@@ -98,7 +100,7 @@ Responses contain `sessionId`, `requestId`, `message`, `replayed`, and an ordere
 | `search_airports` | `GET /api/airports/search` | Resolves city/airport names; fixed `limit=5`. |
 | `search_flights` | `GET /api/flights/search` | Searches routes and filters; fixed `page=1, limit=5`. |
 | `get_flight` | `GET /api/flights/:flightId` | Retrieves current flight details. |
-| `create_booking` | `POST /api/bookings` | Adds `source=AI` and a generated idempotency key. |
+| `create_booking` | `POST /api/bookings` | Adds `source=AI` and uses the canonical requestId as the idempotency key. |
 | `list_my_bookings` | `GET /api/bookings/me` | Accepts a model-selected `page`; fixed `limit=10`. |
 | `cancel_booking` | `PATCH /api/bookings/:bookingId/cancel` | Cancels the authenticated user's booking. |
 
@@ -108,22 +110,40 @@ All declared tool fields are required by the strict schema. Optional flight filt
 
 `Frontend → FastAPI → DeepSeek tool calls → ToolExecutor → REST backend → final reply + events`
 
-- **Application:** `app.py` owns HTTP routes, authentication, sessions, and caching. `resolution.py` contains the assistant loop, tool schemas, validation, and the standard-library HTTP client. The backend owns database access, inventory, and booking rules.
+- **Application:** `app.py` owns HTTP routes, authentication, per-session execution locks, and persistence orchestration. `resolution.py` contains the assistant loop, complete SDK-message serialization, tool validation, and the standard-library HTTP client. The backend owns all Session/Turn database operations, inventory, and booking rules. There is no Python MongoDB connection or in-memory conversation/reply cache.
 - **Tool calling:** The assistant sends conversation history and schemas to DeepSeek, executes returned calls sequentially, and feeds results back until a final answer arrives. The default limit is eight model completions per turn. Responses are non-streaming.
 - **Validation:** Strict schemas are backed by local checks for argument keys, types, ranges, dates, IATA codes, and ObjectIds. The prompt guides clarification and booking/cancellation confirmation; confirmation is not enforced by a separate server-side approval step.
-- **Authentication:** Every chat, cached replay, and session deletion validates the JWT through backend `GET /api/auth/me`. Header credentials stay outside model messages.
-- **SessionStore:** Conversations are keyed by verified user ID and session UUID, with a lock per session. Defaults: 1,000 sessions and a one-hour inactivity expiry. State is in memory and lost on restart; run one worker.
-- **Caching:** Each session retains up to 50 completed replies, including events. The same `requestId` and trimmed message return the cached reply with `replayed=true`. The same `requestId` with different message returns `409 REQUEST_ID_CONFLICT`.
+- **Authentication:** Every chat, replay, restoration, and deletion validates the JWT through backend `GET /api/auth/me`. All persistence calls also forward that bearer token, so backend ownership checks remain authoritative. Header credentials stay outside model messages.
+- **Persistence:** Create/reuse the Session, load its turns, and save the user input through `POST /api/sessions/:sessionId/turns` with `turnId=requestId` before model/tool execution. At the end, send the complete turn transcript to `/turns/:turnId/finish`. The final chat reply and events come from the backend's saved `view`.
+- **Restoration:** Each new model run starts with current system instructions and the full messages of earlier completed turns in sequence order, including tool calls, results, and provider reasoning fields. Pending/failed transcripts are never blindly appended. After a failed attempt, an additional system instruction warns that booking side effects may still exist and must be checked.
+- **Replay:** The same `requestId` and trimmed input replay a completed Turn with `replayed=true`, even after a restart, without initializing/calling the model. Changed input returns `409 TURN_ID_CONFLICT`. There is no TTL or 50-reply cache limit.
+- **Concurrency:** Requests and deletion for one verified user/session share a lock. Locks disappear after the last waiter and contain no conversation data. Use one worker/replica; multiple workers require backend execution leases, since an idempotent start endpoint alone is not a session-wide execution lock.
 - **Idempotency:** The canonical `requestId` is reused as the booking key, with duplicate prevention and payload-conflict checks enforced by the backend per user.
-- **Errors:** Tool errors are returned to the model and included in events. A failed chat turn removes its newly added history, but does not undo completed backend writes. If a write's outcome is uncertain, check orders or retry using the original identifiers.
+- **Errors:** Known model failures save available user/assistant/tool messages with `status=failed` before returning 502. Tools' own error results stay in the transcript and cards. A failed latest turn can be deliberately retried by posting the same IDs/input; its status remains failed until the replacement result is saved. Retrying an older failed turn after later turns exist returns `409 TURN_RETRY_OUT_OF_ORDER`.
+- **Uncertain persistence:** Finish retries the identical write once after a connection failure or backend 5xx, without rerunning tools. A second failure returns `503 TURN_SAVE_FAILED` with IDs. Retrying the chat replays a saved completion if present. If persistence is still unconfirmed, the initial record remains pending: `409 TURN_PENDING` blocks further model runs in that session. Pending does not prove a worker is alive. Reconcile it through backend APIs after checking bookings; there is no automatic pending takeover or crash recovery of unsaved tool messages. Saving errors never overwrite a possibly committed completion with a failed snapshot.
+
+## Restoring the frontend through FastAPI
+
+The existing Vite/nginx `/chat-api` proxy maps to FastAPI `/api`. Browser requests can use `GET /chat-api/chat/sessions` for `{data: {sessions: [...]}}` and `GET /chat-api/chat/sessions/{sessionId}` for `{data: {session: {..., turns: [...]}}}`. The detail response preserves sequence order and each turn's `turnId`, `sequence`, `status`, `view`, `error`, `createdAt`, and `updatedAt`. Raw `messages`, model reasoning, and tool-call arguments are omitted. Render `view.userMessage`, `view.assistantMessage`, and `view.events` directly; no frontend grouping or card reconstruction is needed.
+
+Deleting through `DELETE /chat-api/chat/{sessionId}` now permanently deletes the backend Session and its Turns. The frontend store still needs to wire the new restoration routes; its existing send/delete request shapes remain supported. The standalone CLI remains an ephemeral debugging tool.
 
 ## Development
 
 Run mocked unit tests from this directory:
 
 ```powershell
+python -m pip install httpx
 python -m unittest discover -s tests -v
 ```
+
+The suite mocks REST/model responses and checks durable replay, restored tool context, ownership, concurrent retries, and uncertain saves. An optional integration check starts the real Node backend against its configured isolated test database, creates and removes a temporary user, and keeps the model mocked:
+
+```powershell
+python tests/integration_sessions.py
+```
+
+It requires backend dependencies and `backend/.env` database/JWT configuration. The backend's test-database guard prevents using its configured development database.
 
 For terminal chat:
 
@@ -131,4 +151,4 @@ For terminal chat:
 python resolution.py
 ```
 
-Set `BACKEND_ACCESS_TOKEN` for authenticated CLI tools. The CLI uses its own history and bypasses the HTTP session store and reply cache.
+Set `BACKEND_ACCESS_TOKEN` for authenticated CLI tools. The CLI uses its own history and bypasses FastAPI's durable Session/Turn orchestration.
