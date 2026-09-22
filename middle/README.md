@@ -126,7 +126,11 @@ All declared tool fields are required by the strict schema. Optional flight filt
 
 The existing Vite/nginx `/chat-api` proxy maps to FastAPI `/api`. Browser requests can use `GET /chat-api/chat/sessions` for `{data: {sessions: [...]}}` and `GET /chat-api/chat/sessions/{sessionId}` for `{data: {session: {..., turns: [...]}}}`. The detail response preserves sequence order and each turn's `turnId`, `sequence`, `status`, `view`, `error`, `createdAt`, and `updatedAt`. Raw `messages`, model reasoning, and tool-call arguments are omitted. Render `view.userMessage`, `view.assistantMessage`, and `view.events` directly; no frontend grouping or card reconstruction is needed.
 
-Deleting through `DELETE /chat-api/chat/{sessionId}` now permanently deletes the backend Session and its Turns. The frontend store still needs to wire the new restoration routes; its existing send/delete request shapes remain supported. The standalone CLI remains an ephemeral debugging tool.
+The frontend chat store loads these routes on entering the AI page, on conversation selection, and after sending a message. It renders the ordered `Turn.view` objects directly, including cards from partially failed turns; it never renders `Turn.messages` or model system instructions. Conversation transcripts are no longer stored in browser sessionStorage. An empty new conversation is a local draft until its first message is sent.
+
+Known failed turns can be retried only when they are the latest turn, using the original requestId. The frontend re-reads history after a send error to recover a reply whose acknowledgement was lost. A saved pending turn blocks new messages and offers refresh instead of rerunning tools. Loading and deletion errors preserve the visible conversation, and switching accounts invalidates pending reads/writes in the frontend.
+
+Deleting through `DELETE /chat-api/chat/{sessionId}` permanently deletes the backend Session and its Turns; the sidebar removes it after the API confirms success. The standalone CLI remains an ephemeral debugging tool.
 
 ## Development
 

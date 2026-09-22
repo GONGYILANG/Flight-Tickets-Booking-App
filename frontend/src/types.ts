@@ -94,19 +94,34 @@ export interface ChatEvent {
   }
 }
 
-export interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  requestId?: string
-  events?: ChatEvent[]
-  failed?: boolean
-  error?: string
+export interface ChatTurn {
+  turnId: string
+  // Only the server assigns ordering keys; optimistic messages have no sequence yet.
+  sequence?: number
+  status: 'pending' | 'completed' | 'failed'
+  view: { userMessage: string; assistantMessage: string | null; events: ChatEvent[] }
+  error: string | null
+  delivery?: 'sending' | 'unconfirmed'
+}
+
+export interface ChatSessionSummary {
+  sessionId: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  lastAccess: string
+}
+
+export interface ChatSession extends ChatSessionSummary {
+  turns: ChatTurn[]
 }
 
 export interface ChatConversation {
   id: string
   title: string
-  messages: ChatMessage[]
+  turns: ChatTurn[]
   updatedAt: number
+  persisted: boolean
+  loaded: boolean
+  loadError: string
 }

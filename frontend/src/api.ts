@@ -2,6 +2,8 @@ import type {
   Airport,
   Booking,
   ChatEvent,
+  ChatSession,
+  ChatSessionSummary,
   Flight,
   FlightSearchParams,
   Pagination,
@@ -57,8 +59,12 @@ async function request<T>(path: string, init: RequestInit = {}, authenticated = 
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     const error = body.error ?? body.detail ?? {}
-    if (authenticated && requestToken === accessToken &&
-      (response.status === 401 || error.code === 'ACCOUNT_NOT_ACTIVE')) unauthorizedHandler?.()
+    if (
+      authenticated &&
+      requestToken === accessToken &&
+      (response.status === 401 || error.code === 'ACCOUNT_NOT_ACTIVE')
+    )
+      unauthorizedHandler?.()
     throw new ApiError(
       response.status,
       error.code ?? 'REQUEST_FAILED',
@@ -98,9 +104,11 @@ export async function logout() {
 }
 
 export async function listAirlines(signal?: AbortSignal) {
-  return (await request<{ data: { airlines: Array<{ code: string; name: string }> } }>(
-    '/api/airlines', { signal },
-  )).data.airlines
+  return (
+    await request<{ data: { airlines: Array<{ code: string; name: string }> } }>('/api/airlines', {
+      signal,
+    })
+  ).data.airlines
 }
 
 export async function searchAirports(value: string, limit = 10, signal?: AbortSignal) {
@@ -113,15 +121,20 @@ export async function searchAirports(value: string, limit = 10, signal?: AbortSi
 
 export async function searchFlights(values: FlightSearchParams, signal?: AbortSignal) {
   const response = await request<{
-    data: { flights: Flight[]; pagination: Pagination; search: FlightSearchParams &
-       { departureTimezone: string } }
+    data: {
+      flights: Flight[]
+      pagination: Pagination
+      search: FlightSearchParams & { departureTimezone: string }
+    }
   }>(`/api/flights/search?${toQueryParams({ ...values })}`, { signal })
   return response.data
 }
 
 export async function getFlight(flightId: string, signal?: AbortSignal) {
-  return (await request<{ data: { flight: Flight } }>(
-    `/api/flights/${encodeURIComponent(flightId)}`, { signal })
+  return (
+    await request<{ data: { flight: Flight } }>(`/api/flights/${encodeURIComponent(flightId)}`, {
+      signal,
+    })
   ).data.flight
 }
 
@@ -150,7 +163,10 @@ export async function listBookings(page = 1, limit = 20, signal?: AbortSignal) {
 export async function getBooking(bookingId: string, signal?: AbortSignal) {
   return (
     await request<{ data: { booking: Booking } }>(
-      `/api/bookings/${encodeURIComponent(bookingId)}`, { signal }, true)
+      `/api/bookings/${encodeURIComponent(bookingId)}`,
+      { signal },
+      true,
+    )
   ).data.booking
 }
 
@@ -176,6 +192,30 @@ export async function sendChat(message: string, sessionId: string, requestId: st
   )
 }
 
+export async function listChatSessions(signal?: AbortSignal) {
+  return (
+    await request<{ data: { sessions: ChatSessionSummary[] } }>(
+      '/chat-api/chat/sessions',
+      { signal },
+      true,
+    )
+  ).data.sessions
+}
+
+export async function getChatSession(sessionId: string, signal?: AbortSignal) {
+  return (
+    await request<{ data: { session: ChatSession } }>(
+      `/chat-api/chat/sessions/${encodeURIComponent(sessionId)}`,
+      { signal },
+      true,
+    )
+  ).data.session
+}
+
 export async function deleteChat(sessionId: string) {
-  return request<void>(`/chat-api/chat/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }, true)
+  return request<void>(
+    `/chat-api/chat/${encodeURIComponent(sessionId)}`,
+    { method: 'DELETE' },
+    true,
+  )
 }

@@ -721,16 +721,16 @@ Permanently deletes the owner's session and associated Turns. Returns `204`, als
 
 ### Compatibility and middle-layer integration
 
-The intended middle-layer sequence is:
+The middle-layer sequence is:
 
 1. Create/reuse the Session through `POST /api/sessions`.
 2. Start the Turn with `turnId=requestId`, and wait for persistence before executing tools.
 3. Keep the complete turn transcript in memory during the model/tool loop.
-4. Save success or known failure through `/turns/:turnId/finish`.
+4. Save success or known failure through `POST /api/sessions/:sessionId/turns/:turnId/finish`.
 5. Restore the sidebar from `GET /api/sessions` and each conversation from `GET /api/sessions/:sessionId`; return ordered views/statuses to the browser.
 6. Reconstruct model context from completed transcripts and system instructions. Handle pending/failed turns explicitly rather than blindly sending unfinished tool chains to the model.
 
-FastAPI implements `GET /api/chat/sessions` and `GET /api/chat/sessions/{sessionId}` (browser proxy paths `/chat-api/chat/sessions` and `/chat-api/chat/sessions/{sessionId}`). They return summaries and ordered views/statuses without raw model messages. Chat processing and deletion use these REST persistence APIs. The frontend store still needs to connect to the restoration routes. See [the middle-layer README](../middle/README.md) for pending/failed retry behavior and the single-worker execution requirement.
+FastAPI implements `GET /api/chat/sessions` and `GET /api/chat/sessions/{sessionId}` (browser proxy paths `/chat-api/chat/sessions` and `/chat-api/chat/sessions/{sessionId}`). They return summaries and ordered views/statuses without raw model messages. Chat processing and deletion use these REST persistence APIs. The frontend loads its sidebar and conversation history through these routes, renders `Turn.view` directly, and refreshes saved state after sending. See [the middle-layer README](../middle/README.md) for pending/failed retry behavior and the single-worker execution requirement.
 
 ## Administration API
 
@@ -1023,7 +1023,7 @@ The AI middle layer must use these authenticated APIs rather than accessing Mong
 | Five-day lowest-price strip | Five searches with `limit=1&sortBy=price&sortOrder=asc` | Reuses real search results. |
 | Flight details and booking | Flight detail and booking endpoints | Retries reuse one UUID. |
 | Trips, booking details, cancellation | Booking endpoints | Supported and scoped to the current user. |
-| Persistent AI conversations | Session and Turn endpoints through FastAPI | Middle-layer persistence and restoration are implemented; frontend store restoration integration remains. |
+| Persistent AI conversations | Session and Turn endpoints through FastAPI | Sidebar and ordered Turn.view history/card restoration are connected; sends persist through the middle layer. |
 
 Password recovery is not exposed because it requires verified email delivery and one-time reset credentials. A language label does not require a backend endpoint.
 

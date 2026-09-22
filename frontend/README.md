@@ -4,7 +4,7 @@ Vue 3 desktop-first frontend for the simulated flight booking backend and AI mid
 
 ## UI stack
 
-- Tailwind CSS 4 utilities provide all application layout, spacing, typography, and theme overrides. The Vite plugin compiles the direct `tailwindcss/index.css` import; there are no application CSS files or Vue style blocks.
+- Tailwind CSS 4 utilities provide all application layout, spacing, typography, and theme overrides. `src/main.ts` imports `tailwindcss/index.css` for the framework and `src/style.css` for the theme. `style.css` is the only permitted stylesheet: it carries `@import "tailwindcss"` and the `@custom-variant dark` rule that keeps the theme switchable, and neither can live in a Vue `<style>` block. Every other file uses utility classes only — no component stylesheets, no Vue style blocks, no inline styles.
 - Element Plus provides forms, inputs, date pickers, selects, tables, pagination, drawers, dialogs, and descriptions. Its published component stylesheet is imported in `main.ts`.
 - `lucide-vue-next` provides icons. Use its components instead of handwritten SVG or CSS-drawn icons.
 - Use `ElForm` and `ElTable` for new forms and tables. `npm test` checks that source files do not introduce raw forms/tables, inline styles, or custom stylesheets.
@@ -27,6 +27,8 @@ npm test
 npm run lint
 npm run build
 ```
+
+`npm test` runs the Node test runner directly against `src/__tests__/*.test.ts`. There is no test framework or bundler in the loop for the source check: Node strips the TypeScript types itself, which is why `engines` requires Node `^22.18.0` or `>=24.12.0`.
 
 ESLint checks the source, Prettier handles formatting, and EditorConfig supplies shared indentation and line-width settings. The browser and Node TypeScript configurations remain separate because their runtime types differ.
 
