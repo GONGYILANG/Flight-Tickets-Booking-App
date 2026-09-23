@@ -4,6 +4,7 @@ import { ApiError, deleteChat, getChatSession, listChatSessions, sendChat } from
 import type { ChatConversation, ChatSession } from '../types'
 
 export const useChatStore = defineStore('chat', () => {
+  // Share conversation data and request state between the sidebar and chat window.
   const conversations = ref<ChatConversation[]>([])
   const currentId = ref('')
   const sending = ref(false)
@@ -12,10 +13,13 @@ export const useChatStore = defineStore('chat', () => {
   const loadingHistory = ref(false)
   const listError = ref('')
   const initialized = ref(false)
+  // Resolve the selected conversation from the shared list.
   const current = computed(
     () => conversations.value.find((item) => item.id === currentId.value) ?? null,
   )
+  // Prevent conflicting actions while a message is being sent or a session is being deleted.
   const busy = computed(() => sending.value || deleting.value)
+  // Allow new messages only after history is loaded and no turn has an unresolved outcome.
   const canSend = computed(() =>
     Boolean(
       current.value?.loaded &&
@@ -26,14 +30,18 @@ export const useChatStore = defineStore('chat', () => {
       !current.value.turns.some((turn) => turn.status === 'pending'),
     ),
   )
+  // clearAll() advances this counter so responses from an earlier login are ignored.
   let generation = 0
   let listController: AbortController | undefined
   let historyController: AbortController | undefined
 
   function createConversation() {
+    // Select an existing empty draft or create one with a new UUID.
+    // This is local only; send() triggers server persistence with the first message.
     if (busy.value || loadingSessions.value || !initialized.value) return
     historyController?.abort()
     loadingHistory.value = false
+    // Find an existing draft with no turns and not persisted, or create a new one.
     let conversation = conversations.value.find((item) => !item.persisted && !item.turns.length)
     if (!conversation) {
       conversation = {
@@ -52,6 +60,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function applySession(conversation: ChatConversation, session: ChatSession) {
+    // Synchronize the title, timestamps, and ordered turns with the server response.
     // Preserve an unacknowledged local request so retry keeps the original requestId.
     const unconfirmed = conversation.turns.filter(
       (turn) =>
@@ -67,6 +76,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function select(id: string) {
+    // Switch conversations and fetch saved history; local drafts need no request.
     if (busy.value) return
     const conversation = conversations.value.find((item) => item.id === id)
     if (!conversation) return
@@ -80,19 +90,21 @@ export const useChatStore = defineStore('chat', () => {
     if (!conversation.persisted) return
     try {
       const session = await getChatSession(id, controller.signal)
-      if (scope !== generation || controller.signal.aborted || currentId.value !== id) return
+      // Ignore replies after logout, cancellation, or selection of another conversation.
+      if (controller.signal.aborted || currentId.value !== id) return
       applySession(conversation, session)
     } catch (reason) {
-      if (scope !== generation || controller.signal.aborted || currentId.value !== id) return
+      if (controller.signal.aborted || currentId.value !== id) return
       conversation.loadError = (reason as Error).message
     } finally {
-      if (scope === generation && !controller.signal.aborted && currentId.value === id) {
+      if (!controller.signal.aborted && currentId.value === id) {
         loadingHistory.value = false
       }
     }
   }
 
   async function loadSessions() {
+    // Refresh sidebar summaries while preserving local drafts and already loaded turns.
     listController?.abort()
     const controller = new AbortController()
     listController = controller
@@ -101,13 +113,14 @@ export const useChatStore = defineStore('chat', () => {
     listError.value = ''
     try {
       const summaries = await listChatSessions(controller.signal)
-      if (scope !== generation || controller.signal.aborted) return false
+      if (controller.signal.aborted) return false
       const drafts = conversations.value.filter(
         (item) => !item.persisted && !summaries.some((summary) => summary.sessionId === item.id),
       )
       conversations.value = [
         ...drafts,
         ...summaries.map((summary) => {
+          // Reuse existing conversation objects so a summary refresh does not erase history.
           const existing = conversations.value.find((item) => item.id === summary.sessionId)
           return Object.assign(existing ?? { turns: [], loaded: false, loadError: '' }, {
             id: summary.sessionId,
@@ -129,6 +142,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function initialize() {
+    // Load or refresh the sidebar, then restore the selected session or open an empty draft.
     if (busy.value) return
     sessionStorage.removeItem('flight-booking-chat')
     sessionStorage.removeItem('flight-booking-chat-active')
@@ -141,6 +155,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function canRetry(turnId: string) {
+    // Retry only the latest failed or locally unconfirmed turn when no other work blocks it.
+    // A server-confirmed pending turn must be refreshed rather than executed again.
     const turn = current.value?.turns.at(-1)
     return Boolean(
       turn?.turnId === turnId &&
@@ -154,15 +170,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function send(text: string, retryRequestId?: string) {
+    // Display the outgoing message, submit it through the middle layer, then reload saved state.
     const conversation = current.value
     const content = text.trim()
     if (!conversation || !content || (retryRequestId ? !canRetry(retryRequestId) : !canSend.value))
       return
     const scope = generation
+    // Reuse the original ID on retries to preserve backend idempotency.
     const requestId = retryRequestId ?? crypto.randomUUID()
     let turn = conversation.turns.find((item) => item.turnId === requestId)
     if (turn && turn.view.userMessage !== content) return
     if (!turn) {
+      // Show the user's message immediately; the server will assign its sequence later.
       turn = {
         turnId: requestId,
         status: 'pending',
@@ -170,6 +189,7 @@ export const useChatStore = defineStore('chat', () => {
         view: { userMessage: content, assistantMessage: null, events: [] },
       }
       conversation.turns.push(turn)
+      // Read through the reactive array so later mutations update the Vue interface.
       turn = conversation.turns[conversation.turns.length - 1]!
     }
     turn.delivery = 'sending'
@@ -181,14 +201,13 @@ export const useChatStore = defineStore('chat', () => {
     let saved = false
     try {
       const reply = await sendChat(content, conversation.id, requestId)
-      if (scope !== generation) return
       turn.status = 'completed'
       turn.view = { userMessage: content, assistantMessage: reply.message, events: reply.events }
       delete turn.delivery
       conversation.persisted = true
       saved = true
     } catch (reason) {
-      if (scope !== generation) return
+      // A failed HTTP request does not prove the server failed to save or execute this turn.
       turn.status = 'pending'
       turn.delivery = 'unconfirmed'
       turn.error = (reason as Error).message
@@ -218,11 +237,14 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function retry(turnId: string) {
+    // Resend the original user text and request ID through the normal send flow.
     const turn = current.value?.turns.find((item) => item.turnId === turnId)
     if (turn && canRetry(turnId)) await send(turn.view.userMessage, turnId)
   }
 
   async function clearCurrent() {
+    // Delete the selected session before removing it locally, then open another conversation.
+    // An untouched local draft can be removed without contacting the server.
     if (busy.value || loadingSessions.value || loadingHistory.value) return
     const conversation = current.value
     if (!conversation) return
@@ -244,6 +266,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function clearAll() {
+    // Reset frontend state on logout/account changes without deleting saved server sessions.
+    // Cancel reads and invalidate all outstanding callbacks, including message submissions.
     generation++
     listController?.abort()
     historyController?.abort()

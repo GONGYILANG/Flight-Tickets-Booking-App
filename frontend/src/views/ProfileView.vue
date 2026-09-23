@@ -31,8 +31,9 @@ async function signOut() {
     <section>
       <h1 class="text-2xl font-semibold tracking-tight">Profile</h1>
       <p class="mt-2 text-sm text-slate-500">Your account details</p>
-      <div class="mx-auto mt-10 max-w-3xl rounded-xl border border-slate-200 p-5 sm:p-7 
-        shadow-[0_0_15px_rgba(150,247,228,0.5)]">
+      <div
+        class="mx-auto mt-10 max-w-3xl rounded-xl border border-slate-200 p-5 sm:p-7 bg-white shadow-sm shadow-slate-900/5"
+      >
         <h2 class="mb-6 text-lg font-semibold">Account details</h2>
         <ElDescriptions :column="1" direction="vertical" border>
           <ElDescriptionsItem label="Display name">{{ auth.user?.displayName }}</ElDescriptionsItem>
@@ -41,12 +42,12 @@ async function signOut() {
           </ElDescriptionsItem>
           <ElDescriptionsItem label="Account status">
             <ElTag size="small" :type="auth.user?.status === 'ACTIVE' ? 'success' : 'danger'">
-              {{auth.user?.status === 'ACTIVE' ? 'Active' : auth.user?.status}}
+              {{ auth.user?.status === 'ACTIVE' ? 'Active' : auth.user?.status }}
             </ElTag>
           </ElDescriptionsItem>
         </ElDescriptions>
         <div class="mt-6 flex flex-wrap items-center gap-5">
-          <RouterLink class="font-medium text-teal-700 hover:underline" to="/trips">
+          <RouterLink class="font-medium text-blue-700 hover:underline" to="/trips">
             View my trips
           </RouterLink>
           <ElButton
@@ -57,7 +58,7 @@ async function signOut() {
             :loading-icon="LoaderCircle"
             :disabled="signingOut"
             @click="signOut"
-          >{{ signingOut ? 'Signing out…' : 'Sign out' }}
+            >{{ signingOut ? 'Signing out…' : 'Sign out' }}
           </ElButton>
         </div>
         <p class="mt-4 text-xs text-slate-500">

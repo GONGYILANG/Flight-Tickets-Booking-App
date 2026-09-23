@@ -224,13 +224,13 @@ function applyFilters(value: FilterValue) {
           </p>
         </div>
         <RouterLink
-          class="self-start rounded-lg border border-teal-700 px-4 py-2.5 text-sm font-medium text-teal-700 hover:bg-teal-50 sm:self-auto"
+          class="self-start rounded-lg border border-blue-700 bg-white shadow-sm transition-colors px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 sm:self-auto"
           :to="{ path: '/flights', query: route.query }"
           >Modify search</RouterLink
         >
       </header>
       <div
-        class="grid auto-cols-[150px] grid-flow-col overflow-x-auto rounded-lg border border-slate-200 sm:grid-cols-5 sm:grid-flow-row"
+        class="grid auto-cols-[150px] grid-flow-col overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 sm:grid-cols-5 sm:grid-flow-row"
         aria-label="Departure dates"
       >
         <ElButton
@@ -283,11 +283,7 @@ function applyFilters(value: FilterValue) {
       </div>
       <div v-else-if="error" class="grid gap-4 py-8">
         <ElAlert :title="error" type="error" :closable="false" role="alert" />
-        <ElButton
-          class="justify-self-center"
-          @click="reload++"
-          >Try again
-        </ElButton>
+        <ElButton class="justify-self-center" @click="reload++">Try again </ElButton>
       </div>
       <FlightTable v-else :flights="flights" :passengers="search.passengers" />
       <ElPagination

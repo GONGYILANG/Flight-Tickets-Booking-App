@@ -71,18 +71,14 @@ function go(page: number) {
       </div>
       <div v-else-if="error" class="grid gap-4">
         <ElAlert :title="error" type="error" :closable="false" role="alert" />
-        <ElButton
-          class="justify-self-start"
-          @click="reload++"
-        >Try again
-        </ElButton>
+        <ElButton class="justify-self-start" @click="reload++">Try again </ElButton>
       </div>
       <ElTable
         v-else
         :data="bookings"
         row-key="id"
         size="default"
-        class="w-full"
+        class="w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm shadow-slate-900/5 [&_th]:bg-slate-50! [&_th]:py-3! [&_th]:font-medium! [&_th]:text-slate-500! [&_td]:py-3!"
         aria-label="My trips"
       >
         <ElTableColumn prop="bookingReference" label="Booking" min-width="190">
@@ -99,7 +95,7 @@ function go(page: number) {
               }}</strong>
               <p class="mt-2 flex items-center gap-1 text-xs text-slate-500">
                 {{ formatTime(row.flight.departureAt, row.flight.originAirport.timezone) }}
-                {{ row.flight.originAirport.iataCode}}
+                {{ row.flight.originAirport.iataCode }}
                 <ArrowRight :size="14" aria-hidden="true" />{{
                   formatTime(row.flight.arrivalAt, row.flight.destinationAirport.timezone)
                 }}
@@ -111,7 +107,7 @@ function go(page: number) {
         <ElTableColumn prop="seatCount" label="Travelers" width="100" />
         <ElTableColumn label="Total" min-width="140">
           <template #default="{ row }">
-            {{formatMoney(row.pricing.totalAmount, row.pricing.currency)}}
+            {{ formatMoney(row.pricing.totalAmount, row.pricing.currency) }}
           </template>
         </ElTableColumn>
         <ElTableColumn label="Source" min-width="125">
@@ -122,23 +118,23 @@ function go(page: number) {
         <ElTableColumn label="Status" min-width="130">
           <template #default="{ row }">
             <ElTag size="small" :type="row.status === 'CONFIRMED' ? 'success' : 'danger'">
-              {{row.status === 'CONFIRMED' ? 'Confirmed' : 'Cancelled'}}
+              {{ row.status === 'CONFIRMED' ? 'Confirmed' : 'Cancelled' }}
             </ElTag>
           </template>
         </ElTableColumn>
         <ElTableColumn label="Action" width="135" fixed="right">
           <template #default="{ row }">
             <RouterLink
-              class="inline-flex items-center gap-1 font-medium text-teal-700 hover:underline"
+              class="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline"
               :to="`/trips/${row.id}`"
-            >View details<ChevronRight :size="16" aria-hidden="true" />
+              >View details<ChevronRight :size="16" aria-hidden="true" />
             </RouterLink>
           </template>
         </ElTableColumn>
         <template #empty>
           <div class="grid justify-items-center gap-3 py-10">
             <p>No bookings yet</p>
-            <RouterLink class="font-medium text-teal-700 hover:underline" to="/flights">
+            <RouterLink class="font-medium text-blue-700 hover:underline" to="/flights">
               Search flights
             </RouterLink>
           </div>

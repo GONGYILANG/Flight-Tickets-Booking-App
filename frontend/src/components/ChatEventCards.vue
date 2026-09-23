@@ -40,10 +40,7 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
           >{{ airport.iataCode }} · {{ airport.name }}</ElButton
         >
       </div>
-      <div
-        v-else-if="event.tool === 'search_flights'"
-        class="min-w-0 rounded-lg border border-slate-200 p-2"
-      >
+      <div v-else-if="event.tool === 'search_flights'" class="min-w-0">
         <FlightTable
           :flights="flights(event)"
           :passengers="passengers"
@@ -60,7 +57,7 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
       </div>
       <div
         v-else-if="event.tool === 'get_flight' && flight(event)"
-        class="grid justify-items-start gap-3 rounded-lg border border-slate-200 p-5 text-sm"
+        class="grid justify-items-start gap-3 rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 text-sm"
       >
         <strong>{{ flight(event)?.flightNumber }} · {{ flight(event)?.airline.name }}</strong>
         <span class="text-slate-500">{{
@@ -75,7 +72,7 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
         >
         <span
           >{{ passengers }} travelers · Total
-          <strong class="text-teal-700">{{
+          <strong class="text-blue-700">{{
             formatMoney(
               centsToAmount(amountToCents(flight(event)!.price.amount) * passengers),
               flight(event)!.price.currency,
@@ -103,7 +100,7 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
         v-else-if="
           (event.tool === 'create_booking' || event.tool === 'cancel_booking') && booking(event)
         "
-        class="grid justify-items-start gap-3 rounded-lg border border-slate-200 p-5 text-sm"
+        class="grid justify-items-start gap-3 rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 text-sm"
       >
         <ElTag :type="booking(event)?.status === 'CANCELLED' ? 'danger' : 'success'">{{
           booking(event)?.status === 'CANCELLED' ? 'Booking cancelled' : 'Booking confirmed'
@@ -113,19 +110,19 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
           formatMoney(booking(event)!.pricing.totalAmount, booking(event)!.pricing.currency)
         }}</span>
         <RouterLink
-          class="inline-flex items-center gap-1 font-medium text-teal-700 hover:underline"
+          class="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline"
           :to="`/trips/${booking(event)?.id}`"
           >View booking<ChevronRight :size="16" aria-hidden="true"
         /></RouterLink>
       </div>
       <div
         v-else-if="event.tool === 'list_my_bookings'"
-        class="grid gap-3 rounded-lg border border-slate-200 p-5 text-sm"
+        class="grid gap-3 rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 text-sm"
       >
         <RouterLink
           v-for="item in bookings(event)"
           :key="item.id"
-          class="font-medium text-teal-700 hover:underline"
+          class="font-medium text-blue-700 hover:underline"
           :to="`/trips/${item.id}`"
           >{{ item.bookingReference }} · {{ item.flight.flightNumber }} ·
           {{ item.status.toLowerCase() }}</RouterLink

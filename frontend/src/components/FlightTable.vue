@@ -14,7 +14,7 @@ const emit = defineEmits<{ select: [Flight] }>()
     :data="flights"
     row-key="id"
     size="default"
-    class="w-full"
+    class="w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm shadow-slate-900/5 [&_th]:bg-slate-50! [&_th]:py-3! [&_th]:font-medium! [&_th]:text-slate-500! [&_td]:py-3!"
     aria-label="Flight results"
     empty-text="No flights found"
   >
@@ -51,12 +51,12 @@ const emit = defineEmits<{ select: [Flight] }>()
         <p v-else class="text-xs text-slate-500">
           Nonstop · {{ formatDuration(row.durationMinutes) }}
         </p>
-        <p class="mt-1 text-xs text-green-700">{{ row.availableSeats }} seats left</p>
+        <p class="mt-1 text-xs text-green-700 dark:text-green-400">{{ row.availableSeats }} seats left</p>
       </template>
     </ElTableColumn>
     <ElTableColumn label="Price" min-width="150">
       <template #default="{ row }"
-        ><strong class="text-base text-teal-700 tabular-nums">{{
+        ><strong class="text-base text-blue-700 tabular-nums">{{
           formatMoney(row.price.amount, row.price.currency)
         }}</strong></template
       >
@@ -74,7 +74,7 @@ const emit = defineEmits<{ select: [Flight] }>()
         >
         <RouterLink
           v-else
-          class="inline-flex items-center gap-1 font-medium text-teal-700 hover:underline"
+          class="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline"
           :to="{ path: `/flights/${row.id}`, query: { passengers } }"
           >View flight<ChevronRight :size="16" aria-hidden="true"
         /></RouterLink>

@@ -36,7 +36,9 @@ Production hosting must preserve the same `/api` and `/chat-api` reverse-proxy p
 
 ## Reference design and scope
 
-The ten reference screens live in `../../output/imagegen/flight-booking-web/`. The UI keeps their white background, navy navigation, teal actions, horizontal search, airport selector, date rail, filter drawer, booking review, profile, trips, cancellation dialog, and chat sidebar. Element Plus tables scroll within their containers on mobile.
+The design uses navy navigation, blue actions, white surfaces on a pale slate canvas, compact typography, and restrained borders and shadows.
+
+The flight-search page and shared login/register panel use aviation photographs from [`public/images`]. The images are decorative JPEG assets; form controls and copy are rendered in Vue. Mobile layouts retain the photography while stacking the search and authentication forms. The dark theme uses a navy/slate palette and the same blue action color.
 
 - Login and registration share `AuthView.vue`. Search results and AI results share `FlightTable.vue`; flight and booking details share `FlightItinerary.vue`. Element Plus drawers and dialogs handle focus and Escape behavior.
 - All prices, availability, dates, and sort order come from the API. The references disagree on some data and styles; the implementation keeps USD and genuinely ascending prices, rather than copying contradictory example values.

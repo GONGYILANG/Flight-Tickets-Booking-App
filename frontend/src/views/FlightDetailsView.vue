@@ -107,11 +107,7 @@ async function confirmBooking() {
     </div>
     <div v-else-if="error" class="grid gap-4">
       <ElAlert :title="error" type="error" :closable="false" role="alert" />
-      <ElButton
-        class="justify-self-start"
-        @click="reload++"
-      >Try again
-      </ElButton>
+      <ElButton class="justify-self-start" @click="reload++">Try again </ElButton>
     </div>
     <section v-else-if="flight" class="grid gap-8 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
       <div class="min-w-0 space-y-6">
@@ -130,37 +126,41 @@ async function confirmBooking() {
                   ? 'danger'
                   : 'success'
             "
-          >{{ flight.status.charAt(0) + flight.status.slice(1).toLowerCase() }}
+            >{{ flight.status.charAt(0) + flight.status.slice(1).toLowerCase() }}
           </ElTag>
         </div>
         <FlightItinerary :flight="flight" />
-        <section class="rounded-xl border border-slate-200 p-5 sm:p-6">
+        <section
+          class="rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 sm:p-6"
+        >
           <h2 class="mb-5 text-lg font-semibold">Flight details</h2>
           <ElDescriptions :column="1" border label-width="160">
             <ElDescriptionsItem label="Current departure">
-              {{formatTime(flight.departureAt, flight.originAirport.timezone)}}
+              {{ formatTime(flight.departureAt, flight.originAirport.timezone) }}
             </ElDescriptionsItem>
             <ElDescriptionsItem v-if="flight.scheduleChanged" label="Originally scheduled">
               {{ formatFlightDate(flight.scheduledDepartureAt, flight.originAirport.timezone) }}
-               · {{formatTime(flight.scheduledDepartureAt, flight.originAirport.timezone)}}
+              · {{ formatTime(flight.scheduledDepartureAt, flight.originAirport.timezone) }}
             </ElDescriptionsItem>
             <ElDescriptionsItem label="Current arrival">
-              {{formatTime(flight.arrivalAt, flight.destinationAirport.timezone)}}
+              {{ formatTime(flight.arrivalAt, flight.destinationAirport.timezone) }}
             </ElDescriptionsItem>
             <ElDescriptionsItem v-if="flight.scheduleChanged" label="Original arrival">
-              {{formatFlightDate(flight.scheduledArrivalAt, flight.destinationAirport.timezone)}}
-              · {{formatTime(flight.scheduledArrivalAt, flight.destinationAirport.timezone)}}
+              {{ formatFlightDate(flight.scheduledArrivalAt, flight.destinationAirport.timezone) }}
+              · {{ formatTime(flight.scheduledArrivalAt, flight.destinationAirport.timezone) }}
             </ElDescriptionsItem>
             <ElDescriptionsItem label="Available seats">
-              {{flight.availableSeats}}
+              {{ flight.availableSeats }}
             </ElDescriptionsItem>
             <ElDescriptionsItem label="Price per traveler">
-              {{formatMoney(flight.price.amount, flight.price.currency)}}
+              {{ formatMoney(flight.price.amount, flight.price.currency) }}
             </ElDescriptionsItem>
           </ElDescriptions>
         </section>
       </div>
-      <aside class="self-start rounded-xl border border-slate-200 p-5 sm:p-6">
+      <aside
+        class="self-start rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 sm:p-6"
+      >
         <h2 class="mb-6 text-xl font-semibold">Review booking</h2>
         <ElForm label-position="top" @submit.prevent="confirmBooking">
           <ElFormItem label="Travelers">
@@ -170,19 +170,20 @@ async function confirmBooking() {
               :disabled="booking"
               :suffix-icon="ChevronDown"
             >
-              <ElOption v-for="count in 9" :key="count" :value="count" :label="String(count)"/>
+              <ElOption v-for="count in 9" :key="count" :value="count" :label="String(count)" />
             </ElSelect>
           </ElFormItem>
           <div class="flex flex-wrap justify-between gap-3 border-y border-slate-200 py-5 text-sm">
-            <span>{{ passengers }} travelers ×
+            <span
+              >{{ passengers }} travelers ×
               {{ formatMoney(flight.price.amount, flight.price.currency) }}
             </span>
             <span>{{ formatMoney(totalAmount, flight.price.currency) }}</span>
           </div>
           <div class="my-6 flex justify-between gap-3 text-lg font-semibold">
             <span>Total</span>
-            <span class="text-teal-700">
-              {{formatMoney(totalAmount, flight.price.currency)}}
+            <span class="text-blue-700">
+              {{ formatMoney(totalAmount, flight.price.currency) }}
             </span>
           </div>
           <ElAlert
@@ -207,7 +208,7 @@ async function confirmBooking() {
             :loading="booking"
             :loading-icon="LoaderCircle"
             :disabled="booking || !isBookable(flight, passengers)"
-          >{{ booking ? 'Confirming…' : 'Confirm booking' }}
+            >{{ booking ? 'Confirming…' : 'Confirm booking' }}
           </ElButton>
         </ElForm>
         <p class="my-5 text-center text-xs leading-5 text-slate-500">

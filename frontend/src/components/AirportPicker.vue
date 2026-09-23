@@ -78,7 +78,7 @@ onBeforeUnmount(() => controller?.abort())
       :label="`${airport.cityName} (${airport.iataCode})`"
       :value="airport.iataCode"
     >
-      <span class="mr-3 font-semibold text-teal-700">{{ airport.iataCode }}</span>
+      <span class="mr-3 font-semibold text-blue-700">{{ airport.iataCode }}</span>
       <span>{{ airport.name }}</span>
     </ElOption>
   </ElSelect>

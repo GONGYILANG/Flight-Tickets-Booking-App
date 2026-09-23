@@ -7,7 +7,7 @@ defineProps<{ flight: Flight }>()
 
 <template>
   <div
-    class="grid items-center gap-6 rounded-xl border border-slate-200 p-6 text-center sm:grid-cols-[1fr_auto_1fr]"
+    class="grid items-center gap-6 rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-6 text-center sm:grid-cols-[1fr_auto_1fr]"
   >
     <div class="space-y-2">
       <p class="text-3xl font-semibold tabular-nums">
@@ -21,7 +21,7 @@ defineProps<{ flight: Flight }>()
     </div>
     <div class="grid justify-items-center gap-3 text-xs text-slate-500">
       <span>{{ formatDuration(flight.durationMinutes) }} · Nonstop</span>
-      <ArrowRight :size="28" class="rotate-90 text-teal-600 sm:rotate-0" aria-hidden="true" />
+      <ArrowRight :size="28" class="rotate-90 text-blue-600 sm:rotate-0" aria-hidden="true" />
     </div>
     <div class="space-y-2">
       <p class="text-3xl font-semibold tabular-nums">

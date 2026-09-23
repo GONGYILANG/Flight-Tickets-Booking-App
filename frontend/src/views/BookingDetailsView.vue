@@ -77,15 +77,11 @@ async function confirmCancel() {
     </div>
     <div v-else-if="error && !booking" class="grid gap-4">
       <ElAlert :title="error" type="error" :closable="false" role="alert" />
-      <ElButton
-        class="justify-self-start"
-        @click="reload++"
-        >Try again</ElButton
-      >
+      <ElButton class="justify-self-start" @click="reload++">Try again</ElButton>
     </div>
     <section v-else-if="booking" class="space-y-6">
       <RouterLink
-        class="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:underline"
+        class="inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:underline"
         to="/trips"
       >
         <ArrowLeft :size="18" aria-hidden="true" />Back to my trips
@@ -100,7 +96,7 @@ async function confirmCancel() {
       </div>
       <ElAlert v-if="notice" :title="notice" type="success" :closable="false" role="status" />
       <div
-        class="flex flex-wrap items-center justify-between gap-5 rounded-xl border border-slate-200 p-5 sm:p-6"
+        class="flex flex-wrap items-center justify-between gap-5 rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 sm:p-6"
       >
         <div>
           <strong>{{ booking.flight.flightNumber }} · {{ booking.flight.airline.name }}</strong>
@@ -116,7 +112,7 @@ async function confirmCancel() {
         </div>
         <div class="space-y-2">
           <p class="text-xs text-slate-500">Total</p>
-          <strong class="text-base text-teal-700">{{
+          <strong class="text-base text-blue-700">{{
             formatMoney(booking.pricing.totalAmount, booking.pricing.currency)
           }}</strong>
         </div>
@@ -137,7 +133,9 @@ async function confirmCancel() {
         <h2 class="mb-4 text-lg font-semibold">Itinerary</h2>
         <FlightItinerary :flight="booking.flight" />
       </section>
-      <section class="rounded-xl border border-slate-200 p-5 sm:p-6">
+      <section
+        class="rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 sm:p-6"
+      >
         <h2 class="mb-5 text-lg font-semibold">Booking details</h2>
         <ElDescriptions :column="1" border label-width="160">
           <ElDescriptionsItem label="Price per traveler">{{
@@ -177,15 +175,14 @@ async function confirmCancel() {
       />
       <template #footer>
         <div class="flex flex-wrap justify-end gap-3">
-          <ElButton :disabled="cancelling" @click="dialogOpen = false">Keep booking
-          </ElButton>
+          <ElButton :disabled="cancelling" @click="dialogOpen = false">Keep booking </ElButton>
           <ElButton
             type="danger"
             :loading="cancelling"
             :loading-icon="LoaderCircle"
             :disabled="cancelling"
             @click="confirmCancel"
-          >{{ cancelling ? 'Cancelling…' : 'Cancel booking' }}
+            >{{ cancelling ? 'Cancelling…' : 'Cancel booking' }}
           </ElButton>
         </div>
       </template>

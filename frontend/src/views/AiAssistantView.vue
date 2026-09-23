@@ -73,7 +73,7 @@ watch(
 <template>
   <AppShell flush>
     <section class="grid h-[calc(100dvh-4rem)] min-h-0 md:grid-cols-[280px_minmax(0,1fr)]">
-      <aside class="hidden overflow-y-auto border-r border-slate-200 p-5 md:block">
+      <aside class="hidden overflow-y-auto border-r border-slate-200 bg-white p-5 md:block">
         <ConversationList />
       </aside>
       <ElDrawer
@@ -174,7 +174,7 @@ watch(
               <div class="grid justify-items-end gap-1">
                 <span class="text-xs text-slate-500">You</span>
                 <div
-                  class="max-w-full rounded-xl bg-teal-700 px-4 py-3 text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-white sm:max-w-[85%]"
+                  class="max-w-full rounded-xl bg-blue-700 px-4 py-3 text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-white shadow-sm sm:max-w-[85%]"
                 >
                   {{ turn.view.userMessage }}
                 </div>
@@ -186,7 +186,7 @@ watch(
                 <span class="text-xs text-slate-500">Assistant</span>
                 <div
                   v-if="turn.view.assistantMessage"
-                  class="max-w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-slate-800 sm:max-w-[85%]"
+                  class="max-w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-slate-800 shadow-sm shadow-slate-900/5 sm:max-w-[85%]"
                 >
                   {{ turn.view.assistantMessage }}
                 </div>
