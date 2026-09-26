@@ -20,6 +20,14 @@ npm run dev
 
 Vite proxies `/api/*` to the Node backend and rewrites `/chat-api/*` to the middle layer's `/api/*` routes, so the browser uses same-origin requests.
 
+## Simulated checkout
+
+Flight review and AI flight-confirmation cards open `/flights/:flightId/checkout` with the traveler count. Checkout has three stages: select one demo seat per traveler, confirm a short reservation-progress animation, and complete a simulated payment. The mobile layout keeps the primary action visible in a bottom bar.
+
+The seat map is an illustrative 3–3 layout capped at 20 rows. Selected seat labels remain local to this screen; the backend only stores seat counts, so no actual seat assignment or inventory hold is made during the animation. No card details are requested and no money is charged.
+
+Only the final payment button calls `POST /api/bookings`. It reuses the existing booking idempotency key after errors or refreshes, prevents concurrent submissions, and keeps errors on the payment screen. Leaving before payment creates no booking. Success opens My trips, where a separately fetched, owner-scoped booking supplies the confirmation receipt. Natural-language AI tool bookings still use the existing backend tool flow.
+
 ## Checks
 
 ```powershell

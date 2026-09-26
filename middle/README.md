@@ -97,7 +97,7 @@ Responses contain `sessionId`, `requestId`, `message`, `replayed`, and an ordere
 
 | Tool | Backend endpoint | Notes |
 | --- | --- | --- |
-| `search_airports` | `GET /api/airports/search` | Resolves city/airport names; fixed `limit=5`. |
+| `search_airports` | `GET /api/airports/search` | Exact full city/airport name or IATA resolution; fixed `limit=5, match=exact`. |
 | `search_flights` | `GET /api/flights/search` | Searches routes and filters; fixed `page=1, limit=5`. |
 | `get_flight` | `GET /api/flights/:flightId` | Retrieves current flight details. |
 | `create_booking` | `POST /api/bookings` | Adds `source=AI` and uses the canonical requestId as the idempotency key. |
@@ -105,6 +105,8 @@ Responses contain `sessionId`, `requestId`, `message`, `replayed`, and an ordere
 | `cancel_booking` | `PATCH /api/bookings/:bookingId/cancel` | Cancels the authenticated user's booking. |
 
 All declared tool fields are required by the strict schema. Optional flight filters use `departure_period="ANY"` and `airline_code=""`; Python omits these filters from the backend query. See the [backend API reference](../docs/api-reference.md) for REST contracts.
+
+Airport resolution uses full English city names or exact codes rather than the UI's fuzzy autocomplete. Backend event projections deduplicate airport options and remove old code-substring mismatches while retaining full tool transcripts. Airport results alone do not establish flight availability or that a city's other airports do not exist.
 
 ## How it works
 
@@ -127,6 +129,8 @@ All declared tool fields are required by the strict schema. Optional flight filt
 The existing Vite/nginx `/chat-api` proxy maps to FastAPI `/api`. Browser requests can use `GET /chat-api/chat/sessions` for `{data: {sessions: [...]}}` and `GET /chat-api/chat/sessions/{sessionId}` for `{data: {session: {..., turns: [...]}}}`. The detail response preserves sequence order and each turn's `turnId`, `sequence`, `status`, `view`, `error`, `createdAt`, and `updatedAt`. Raw `messages`, model reasoning, and tool-call arguments are omitted. Render `view.userMessage`, `view.assistantMessage`, and `view.events` directly; no frontend grouping or card reconstruction is needed.
 
 The frontend chat store loads these routes on entering the AI page, on conversation selection, and after sending a message. It renders the ordered `Turn.view` objects directly, including cards from partially failed turns; it never renders `Turn.messages` or model system instructions. Conversation transcripts are no longer stored in browser sessionStorage. An empty new conversation is a local draft until its first message is sent.
+
+The flight card's **Confirm booking** button opens the frontend's simulated seat-selection and payment flow. Other quick actions continue sending chat messages. A booking completed through that screen uses the standard UI booking API; natural-language tool bookings retain the existing AI flow.
 
 Known failed turns can be retried only when they are the latest turn, using the original requestId. The frontend re-reads history after a send error to recover a reply whose acknowledgement was lost. A saved pending turn blocks new messages and offers refresh instead of rerunning tools. Loading and deletion errors preserve the visible conversation, and switching accounts invalidates pending reads/writes in the frontend.
 

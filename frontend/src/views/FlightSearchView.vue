@@ -98,8 +98,8 @@ function openResults(value?: RecentSearch) {
     error.value = 'Select both an origin and a destination airport.'
     return
   }
-  if (search.origin.iataCode === search.destination.iataCode) {
-    error.value = 'Origin and destination must be different.'
+  if (search.origin.cityName === search.destination.cityName) {
+    error.value = 'Origin and destination cities must be different.'
     return
   }
   if (!isCalendarDate(search.departureDate) || search.departureDate < today()) {
@@ -155,7 +155,7 @@ function openResults(value?: RecentSearch) {
           @submit.prevent="openResults()"
         >
           <ElFormItem label="From" class="mb-0! min-w-0">
-            <AirportPicker v-model="origin" label="From" :exclude="destination?.iataCode" />
+            <AirportPicker v-model="origin" label="From" />
           </ElFormItem>
           <ElButton
             :icon="ArrowLeftRight"
@@ -164,7 +164,7 @@ function openResults(value?: RecentSearch) {
             @click="swap"
           />
           <ElFormItem label="To" class="mb-0! min-w-0">
-            <AirportPicker v-model="destination" label="To" :exclude="origin?.iataCode" />
+            <AirportPicker v-model="destination" label="To" />
           </ElFormItem>
           <ElFormItem label="Departure" for="departure-date" class="mb-0! min-w-0">
             <ElDatePicker

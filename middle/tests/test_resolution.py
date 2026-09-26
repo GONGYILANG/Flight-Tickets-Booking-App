@@ -110,6 +110,13 @@ class ToolSchemaTests(unittest.TestCase):
 
 
 class BackendClientTests(unittest.TestCase):
+    def test_airport_tool_requests_exact_resolution_not_autocomplete(self) -> None:
+        client = resolution.BackendClient("http://localhost:3000")
+        with patch(f"{resolution.__name__}.urlopen", return_value=FakeHTTPResponse(200, {"data": {"airports": []}})) as urlopen:
+            client.search_airports("SHA", 5)
+        self.assertEqual(urlopen.call_args.args[0].full_url,
+                         "http://localhost:3000/api/airports/search?q=SHA&limit=5&match=exact")
+
     def test_session_endpoints_forward_ids_bodies_and_bearer_tokens(self) -> None:
         client = resolution.BackendClient("http://localhost:3000")
         session_id, turn_id = str(uuid.uuid4()), str(uuid.uuid4())

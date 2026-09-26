@@ -16,21 +16,18 @@ import FlightItinerary from '../components/FlightItinerary.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
-import { createBooking, getFlight } from '../api'
+import { getFlight } from '../api'
 import {
   amountToCents,
-  bookingAttempt,
   boundedInteger,
   centsToAmount,
   formatFlightDate,
   formatMoney,
   formatTime,
   isBookable,
-  type PendingBooking,
 } from '../lib'
 import type { Flight } from '../types'
 
-const PENDING_KEY = 'flight-booking-pending-booking'
 const route = useRoute()
 const router = useRouter()
 const flight = ref<Flight | null>(null)
@@ -45,15 +42,6 @@ const totalAmount = computed(() => {
   if (!flight.value) return '0.00'
   return centsToAmount(amountToCents(flight.value.price.amount) * passengers.value)
 })
-
-function readPending(): PendingBooking | null {
-  try {
-    return JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? 'null') as PendingBooking | null
-  } catch {
-    sessionStorage.removeItem(PENDING_KEY)
-    return null
-  }
-}
 
 watch(
   [() => route.params.flightId, reload],
@@ -83,14 +71,13 @@ async function confirmBooking() {
     bookingError.value = 'This flight is no longer available for the selected travelers.'
     return
   }
-  const attempt = bookingAttempt(readPending(), flight.value.id, passengers.value)
-  sessionStorage.setItem(PENDING_KEY, JSON.stringify(attempt))
   booking.value = true
   bookingError.value = ''
   try {
-    const result = await createBooking(attempt.flightId, attempt.seatCount, attempt.idempotencyKey)
-    sessionStorage.removeItem(PENDING_KEY)
-    await router.replace({ path: `/trips/${result.booking.id}`, query: { created: '1' } })
+    await router.push({
+      path: `/flights/${flight.value.id}/checkout`,
+      query: { passengers: passengers.value },
+    })
   } catch (reason) {
     bookingError.value = (reason as Error).message
   } finally {
@@ -188,7 +175,7 @@ async function confirmBooking() {
           </div>
           <ElAlert
             v-if="bookingError"
-            :title="`${bookingError} You can safely retry this booking.`"
+            :title="bookingError"
             type="error"
             :closable="false"
             class="mb-4"
@@ -208,11 +195,11 @@ async function confirmBooking() {
             :loading="booking"
             :loading-icon="LoaderCircle"
             :disabled="booking || !isBookable(flight, passengers)"
-            >{{ booking ? 'Confirming…' : 'Confirm booking' }}
+            >{{ booking ? 'Opening checkout…' : 'Confirm booking' }}
           </ElButton>
         </ElForm>
         <p class="my-5 text-center text-xs leading-5 text-slate-500">
-          No payment is collected. This is a simulated booking.
+          Choose your seats and complete a simulated payment next. No money is charged.
         </p>
         <div class="text-center">
           <ElButton link type="primary" @click="router.back()">Cancel</ElButton>

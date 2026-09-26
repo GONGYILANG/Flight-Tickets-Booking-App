@@ -5,31 +5,40 @@ import { ChevronDown, MapPin } from 'lucide-vue-next'
 import { searchAirports } from '../api'
 import type { Airport } from '../types'
 
-const props = defineProps<{ label: string; modelValue: Airport | null; exclude?: string }>()
+const props = defineProps<{ label: string; modelValue: Airport | null }>()
 const emit = defineEmits<{ 'update:modelValue': [Airport] }>()
 const results = ref<Airport[]>([])
 const loading = ref(false)
 const error = ref('')
+const query = ref('')
 let controller: AbortController | null = null
-const popular = ['Shanghai', 'Guangzhou', 'Shenzhen', 'Chengdu', 'Tokyo', 'Singapore']
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+const popular = ['Shanghai', 'Beijing', 'Hong Kong', 'Chengdu', 'Tokyo', 'Singapore']
 
-async function search(value: string) {
+function search(value: string) {
+  // Every new input/shortcut owns the latest search, including during the debounce window.
+  clearTimeout(searchTimer)
   controller?.abort()
   const request = new AbortController()
   controller = request
   results.value = []
   error.value = ''
-  loading.value = Boolean(value.trim())
-  if (!value.trim()) return
-  try {
-    const matches = await searchAirports(value.trim(), 20, request.signal)
-    if (!request.signal.aborted)
-      results.value = matches.filter((airport) => airport.iataCode !== props.exclude)
-  } catch {
-    if (!request.signal.aborted) error.value = 'Airports could not be loaded. Try searching again.'
-  } finally {
-    if (!request.signal.aborted) loading.value = false
-  }
+  // An empty input may show the selected city's airports; never replace a typed query on open.
+  const term = value.trim() || props.modelValue?.cityName || ''
+  query.value = term
+  loading.value = Boolean(term)
+  if (!term) return
+  searchTimer = setTimeout(async () => {
+    try {
+      const matches = await searchAirports(term, 20, request.signal)
+      if (!request.signal.aborted) results.value = matches
+    } catch {
+      if (!request.signal.aborted)
+        error.value = 'Airports could not be loaded. Try searching again.'
+    } finally {
+      if (!request.signal.aborted) loading.value = false
+    }
+  }, 250)
 }
 
 function choose(code: string) {
@@ -37,7 +46,10 @@ function choose(code: string) {
   if (airport) emit('update:modelValue', airport)
 }
 
-onBeforeUnmount(() => controller?.abort())
+onBeforeUnmount(() => {
+  clearTimeout(searchTimer)
+  controller?.abort()
+})
 </script>
 
 <template>
@@ -48,18 +60,26 @@ onBeforeUnmount(() => controller?.abort())
     filterable
     remote
     :remote-method="search"
-    :debounce="250"
+    :debounce="0"
     :loading="loading"
     :suffix-icon="ChevronDown"
-    :no-data-text="error || 'Search by city, airport, or IATA code'"
+    remote-show-suffix
     class="w-full"
     :fit-input-width="false"
     popper-class="max-w-[calc(100vw-2rem)]"
     @change="choose"
-    @visible-change="(visible) => visible && search(modelValue?.cityName ?? '')"
   >
     <template #prefix><MapPin :size="16" aria-hidden="true" /></template>
     <template #label>{{ modelValue?.cityName }} ({{ modelValue?.iataCode }})</template>
+    <template #empty>
+      <p class="px-4 py-3 text-sm text-slate-500" role="status">
+        {{
+          loading
+            ? 'Loading airports…'
+            : error || (query ? 'No matching airports' : 'Search by city, airport, or IATA code')
+        }}
+      </p>
+    </template>
     <template #header>
       <div class="grid max-w-96 grid-cols-2 gap-2 p-1 sm:grid-cols-3">
         <ElButton

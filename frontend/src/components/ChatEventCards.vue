@@ -2,18 +2,28 @@
 import { ElAlert, ElButton, ElTag } from 'element-plus'
 import { ArrowRight, ChevronRight } from 'lucide-vue-next'
 import FlightTable from './FlightTable.vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { computed } from 'vue'
 import { amountToCents, centsToAmount, formatFlightDate, formatMoney, formatTime } from '../lib'
 import type { Airport, Booking, ChatEvent, Flight } from '../types'
 
 const props = defineProps<{ events: ChatEvent[]; passengers: number; interactive: boolean }>()
 const emit = defineEmits<{ quick: [string] }>()
+const router = useRouter()
 
 const hasBooking = computed(() =>
   props.events.some((event) => event.tool === 'create_booking' && event.result.ok),
 )
-const airports = (event: ChatEvent) => (event.result.data?.airports ?? []) as Airport[]
+function airportGroups(event: ChatEvent) {
+  const groups = new Map<string, Airport[]>()
+  for (const airport of (event.result.data?.airports ?? []) as Airport[]) {
+    const key = `${airport.cityName}, ${airport.countryCode}`
+    const group = groups.get(key) ?? []
+    group.push(airport)
+    groups.set(key, group)
+  }
+  return [...groups].map(([city, airports]) => ({ city, airports }))
+}
 const flights = (event: ChatEvent) => (event.result.data?.flights ?? []) as Flight[]
 const flight = (event: ChatEvent) => event.result.data?.flight as unknown as Flight | undefined
 const booking = (event: ChatEvent) => event.result.data?.booking as unknown as Booking | undefined
@@ -30,16 +40,26 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
         :closable="false"
         role="alert"
       />
-      <div v-else-if="event.tool === 'search_airports'" class="flex flex-wrap gap-2">
-        <ElButton
-          v-for="airport in airports(event)"
-          :key="airport.id"
-          class="m-0!"
-          :disabled="!interactive"
-          @click="emit('quick', `Use ${airport.name} (${airport.iataCode}).`)"
-          >{{ airport.iataCode }} · {{ airport.name }}</ElButton
+      <template v-else-if="event.tool === 'search_airports'">
+        <section
+          v-for="group in airportGroups(event)"
+          :key="group.city"
+          class="grid gap-2"
+          :aria-label="`${group.city} airports`"
         >
-      </div>
+          <h3 class="text-xs font-medium text-slate-500">{{ group.city }}</h3>
+          <div class="flex flex-wrap gap-2">
+            <ElButton
+              v-for="airport in group.airports"
+              :key="airport.id"
+              class="m-0! h-auto! min-h-10 max-w-full py-2! text-left! [&>span]:whitespace-normal"
+              :disabled="!interactive"
+              @click="emit('quick', `Use ${airport.name} (${airport.iataCode}).`)"
+              >{{ airport.iataCode }} · {{ airport.name }}</ElButton
+            >
+          </div>
+        </section>
+      </template>
       <div v-else-if="event.tool === 'search_flights'" class="min-w-0">
         <FlightTable
           :flights="flights(event)"
@@ -84,10 +104,7 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
             type="primary"
             class="m-0!"
             @click="
-              emit(
-                'quick',
-                `Confirm booking ${flight(event)?.flightNumber} (${flight(event)?.id}) departing ${flight(event)?.departureAt} for ${passengers} seats at ${flight(event)?.price.amount} USD per traveler.`,
-              )
+              router.push({ path: `/flights/${flight(event)!.id}/checkout`, query: { passengers } })
             "
             >Confirm booking</ElButton
           >

@@ -268,6 +268,8 @@ Example completed Turn DTO:
 
 `view` is generated and stored by the backend from `messages`; callers do not submit a second copy. It contains user text, final assistant text (or `null`), and ordered `{tool, result}` attachments for `ChatEventCards`. Tool IDs and arguments remain in `messages`, outside `view.events`. The middle layer should return views/statuses to the UI and keep raw reasoning/tool transcripts server-side.
 
+Airport cards omit duplicate IATA codes within a turn and discard legacy three-letter substring mismatches using the original tool query. Session reads and completed-turn replays regenerate event cards from the unchanged transcript, so older conversations receive the corrected presentation without a database migration. Tool errors and other tool-event types remain visible.
+
 Sessions and turns have no TTL. Internal MongoDB IDs, owner IDs, sequence counters, and deletion markers are omitted from DTOs.
 
 ## Health API
@@ -382,6 +384,7 @@ Searches by IATA code, airport name, or city name.
 | --- | --- | --- | --- |
 | `q` | Yes | — | 1–80 characters, case-insensitive. |
 | `limit` | No | `10` | Integer from 1 to 20. |
+| `match` | No | `fuzzy` | `fuzzy` enables substring autocomplete; `exact` requires a complete IATA code, city name, or airport name. |
 
 ```http
 GET /api/airports/search?q=beijing&limit=10
@@ -407,6 +410,10 @@ Successful response (`200`):
 ```
 
 Results rank exact IATA matches first, followed by IATA prefixes, exact city matches, city prefixes, and airport name prefixes. Invalid parameters return `400 INVALID_REQUEST`.
+
+The AI airport-resolution tool uses `match=exact`, while the frontend airport picker keeps fuzzy autocomplete. For example, an unlisted `SHA` code returns no exact match instead of matching `Shanghai`, `Shaheed`, or `Marshall` by substring. Results describe this application's airport catalogue, not the existence or availability of flights.
+
+Fuzzy autocomplete tolerates spaces inserted within a city name: `shang hai` can match `Shanghai`, and `bei jing` can match `Beijing`. Exact mode retains literal full-name/code matching. The frontend debounces the latest typed query and cancels superseded searches; opening the dropdown never replaces typed text with a recent-search city.
 
 ## Airline API
 

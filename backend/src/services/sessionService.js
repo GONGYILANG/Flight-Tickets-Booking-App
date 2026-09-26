@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { serviceError } from "../errors.js";
 import Session from "../models/Session.js";
 import Turn from "../models/Turn.js";
+import { toTurnEvents } from "./turnEvents.js";
 
 function toIsoString(value) {
   return new Date(value).toISOString();
@@ -23,7 +24,7 @@ function toTurnResponse(turn) {
     sequence: turn.sequence,
     status: turn.status,
     messages: turn.messages,
-    view: turn.view,
+    view: { ...turn.view, events: toTurnEvents(turn.messages) },
     error: turn.error,
     createdAt: toIsoString(turn.createdAt),
     updatedAt: toIsoString(turn.updatedAt),
@@ -156,7 +157,8 @@ export async function finishTurn({ userId, sessionId, turnId, status, messages, 
   if (!turn) {
     turn = await Turn.findOne(filter).lean();
     if (!turn) throw serviceError("TURN_NOT_FOUND", "Turn was not found", 404);
-    if (!Object.entries(result).every(([key, value]) => isDeepStrictEqual(turn[key], value))) {
+    // UI projections may change between deployments; replay identity is the saved transcript.
+    if (!Object.entries({ status, messages, error }).every(([key, value]) => isDeepStrictEqual(turn[key], value))) {
       throw serviceError("TURN_ALREADY_COMPLETED", "A completed turn cannot be overwritten", 409);
     }
   }

@@ -40,6 +40,10 @@ export function validateAirportSearch(request, _response, next) {
   }
 
   const limit = parseLimit(request.query.limit, fields);
+  const match = request.query.match ?? "fuzzy";
+  if (!["fuzzy", "exact"].includes(match)) {
+    fields.push({ field: "match", message: "match must be fuzzy or exact" });
+  }
 
   if (fields.length > 0) {
     throw invalidRequest(
@@ -48,6 +52,6 @@ export function validateAirportSearch(request, _response, next) {
     );
   }
 
-  request.validatedQuery = { query, limit };
+  request.validatedQuery = { query, limit, match };
   next();
 }

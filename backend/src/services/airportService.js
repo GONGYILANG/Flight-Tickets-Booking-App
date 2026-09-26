@@ -15,9 +15,13 @@ function toAirportResponse(airport) {
   };
 }
 
-export async function searchAirports({ query, limit }) {
-  const escapedQuery = escapeRegularExpression(query);
-  const containsQuery = new RegExp(escapedQuery, "i");
+export async function searchAirports({ query, limit, match = "fuzzy" }) {
+  // Autocomplete tolerates spaced spelling ("shang hai" → "Shanghai").
+  // Exact AI resolution continues to require the complete literal name/code.
+  const escapedQuery = match === "exact"
+    ? escapeRegularExpression(query)
+    : query.split(/\s+/).map(escapeRegularExpression).join("\\s*");
+  const containsQuery = new RegExp(match === "exact" ? `^${escapedQuery}$` : escapedQuery, "i");
   const prefixQuery = `^${escapedQuery}`;
 
   const airports = await Airport.aggregate([

@@ -72,7 +72,7 @@ watch(
 
 <template>
   <AppShell flush>
-    <section class="grid h-[calc(100dvh-4rem)] min-h-0 md:grid-cols-[280px_minmax(0,1fr)]">
+    <section class="grid h-[calc(100dvh-4rem)] min-h-0 grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)]">
       <aside class="hidden overflow-y-auto border-r border-slate-200 bg-white p-5 md:block">
         <ConversationList />
       </aside>
@@ -85,14 +85,14 @@ watch(
       >
         <ConversationList @selected="sidebarOpen = false" />
       </ElDrawer>
-      <div class="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]">
+      <div class="grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto]">
         <header
           class="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-5 lg:px-8"
         >
           <div class="min-w-0">
             <div class="flex items-center gap-3">
               <ElButton
-                class="md:hidden!"
+                class="size-11! p-0! md:hidden!"
                 :icon="Menu"
                 aria-label="Toggle conversations"
                 :aria-expanded="sidebarOpen"
@@ -112,6 +112,7 @@ watch(
             <ElButton
               text
               :icon="RefreshCw"
+              class="m-0! size-11! p-0!"
               aria-label="Refresh conversation"
               :disabled="chat.busy || chat.loadingHistory || chat.loadingSessions"
               @click="chat.initialize()"
@@ -119,6 +120,7 @@ watch(
             <ElButton
               text
               :icon="Trash2"
+              class="m-0! size-11! p-0! sm:w-auto! sm:px-3!"
               aria-label="Delete conversation"
               :loading="chat.deleting"
               :disabled="!chat.current || chat.busy || chat.loadingHistory || chat.loadingSessions"

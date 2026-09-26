@@ -84,7 +84,6 @@ export const useChatStore = defineStore('chat', () => {
     historyController?.abort()
     const controller = new AbortController()
     historyController = controller
-    const scope = generation
     conversation.loadError = ''
     loadingHistory.value = conversation.persisted
     if (!conversation.persisted) return

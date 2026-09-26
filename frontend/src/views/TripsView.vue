@@ -12,34 +12,38 @@ import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
-import { listBookings } from '../api'
+import { getBooking, listBookings } from '../api'
 import { boundedInteger, formatFlightDate, formatMoney, formatTime } from '../lib'
 import type { Booking, Pagination } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const bookings = ref<Booking[]>([])
+const confirmedBooking = ref<Booking | null>(null)
 const pagination = ref<Pagination>({ page: 1, limit: 20, totalItems: 0, totalPages: 0 })
 const loading = ref(true)
 const error = ref('')
 const reload = ref(0)
 
 watch(
-  [() => route.query.page, reload],
+  [() => route.query.page, () => route.query.created, reload],
   async (_value, _old, cleanup) => {
     const controller = new AbortController()
     cleanup(() => controller.abort())
     loading.value = true
     error.value = ''
+    confirmedBooking.value = null
     try {
-      const result = await listBookings(
-        boundedInteger(route.query.page, 1, 10000),
-        20,
-        controller.signal,
-      )
+      const [result, receipt] = await Promise.all([
+        listBookings(boundedInteger(route.query.page, 1, 10000), 20, controller.signal),
+        typeof route.query.created === 'string'
+          ? getBooking(route.query.created, controller.signal).catch(() => null)
+          : Promise.resolve(null),
+      ])
       if (controller.signal.aborted) return
       bookings.value = result.bookings
       pagination.value = result.pagination
+      confirmedBooking.value = receipt?.status === 'CONFIRMED' ? receipt : null
     } catch (reason) {
       if (!controller.signal.aborted) error.value = (reason as Error).message
     } finally {
@@ -59,6 +63,24 @@ function go(page: number) {
     <section>
       <h1 class="text-2xl font-semibold tracking-tight">My trips</h1>
       <p class="mt-2 text-sm text-slate-500">Your simulated bookings</p>
+      <div v-if="confirmedBooking" class="mt-5 grid gap-3" role="status">
+        <ElAlert
+          title="Booking confirmed"
+          :description="`Simulated payment complete.
+           ${confirmedBooking.bookingReference} · ${confirmedBooking.flight.flightNumber}
+           · ${confirmedBooking.seatCount} traveler${confirmedBooking.seatCount === 1 ? '' : 's'}
+           · ${formatMoney(confirmedBooking.pricing.totalAmount, confirmedBooking.pricing.currency)}`"
+          type="success"
+          :closable="false"
+          :show-icon="true"
+        />
+        <RouterLink
+          class="justify-self-start text-sm font-medium text-blue-700 underline"
+          :to="`/trips/${confirmedBooking.id}`"
+        >
+          View confirmed booking
+        </RouterLink>
+      </div>
       <div class="my-6 flex justify-between text-sm text-slate-500">
         <span>Newest first</span>
         <span>

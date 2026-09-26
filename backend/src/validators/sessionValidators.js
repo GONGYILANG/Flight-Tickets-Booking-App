@@ -1,4 +1,5 @@
 import { invalidRequest } from "../errors.js";
+import { toTurnEvents } from "../services/turnEvents.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -84,7 +85,6 @@ function turnView(messages, status) {
   }
   const pending = new Map();
   const seen = new Set();
-  const events = [];
   for (const message of messages.slice(1)) {
     if (!isObject(message)) invalid("Each message must be a JSON object");
     if (message.role === "assistant") {
@@ -122,7 +122,6 @@ function turnView(messages, status) {
         invalid("Tool content must be a JSON-encoded result object");
       }
       if (!isObject(result)) invalid("Tool content must encode a result object");
-      events.push({ tool: pending.get(message.tool_call_id), result });
       pending.delete(message.tool_call_id);
     } else {
       invalid("Only assistant and tool messages may follow the initial user message");
@@ -136,7 +135,7 @@ function turnView(messages, status) {
   if (status === "completed" && (pending.size || !finalText)) {
     invalid("A completed turn must resolve every tool call and end with assistant text");
   }
-  return { userMessage: first.content, assistantMessage: finalText || null, events };
+  return { userMessage: first.content, assistantMessage: finalText || null, events: toTurnEvents(messages) };
 }
 
 export function validateFinishTurn(request, _response, next) {

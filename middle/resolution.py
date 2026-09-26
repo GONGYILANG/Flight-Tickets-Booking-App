@@ -92,12 +92,15 @@ TOOLS: list[dict[str, Any]] = [
         (
             "Search airports by IATA code, airport name, or city name. Use this "
             "before searching flights whenever the user gives a city or airport "
-            "name rather than one unambiguous three-letter IATA code."
+            "name rather than one unambiguous three-letter IATA code. Use a full English "
+            "city name or airport name, or an exact IATA code; this is not substring autocomplete. "
+            "Search each city separately. Results describe the airport catalogue, not flight availability."
         ),
         {
             "query": {
                 "type": "string",
-                "description": "The city, airport name, or IATA code to resolve.",
+                "description": "Full English city/airport name (for example Beijing or Shanghai), "
+                "or an exact three-letter IATA code.",
             },
         },
     ),
@@ -217,6 +220,8 @@ SYSTEM_PROMPT_TEMPLATE = """你是机票搜索与预订助手。当前日期是 
 
 你必须遵守以下规则：
 1. 机场名或城市名必须先用 search_airports 解析；只有用户已经给出无歧义的三位 IATA 代码时才可跳过。若一个城市有多个机场且用户没有指定，应展示候选项并请用户选择，不得擅自决定。
+   - 城市查询使用完整英文城市名，并分别查询出发地和目的地；不要把城市名缩写成三字母代码来猜测机场。查询不到某个代码时，不得使用名称子串匹配的其他机场替代。
+   - 机场目录查询不代表航班可订，也不保证列出了该城市的所有机场；只能称为“系统收录的机场”，可订航班须由 search_flights 确认。
 2. 不得编造机场代码、flight_id、booking_id、价格、余票或订单状态。所有这些事实必须来自工具结果。
 3. 搜索航班时，未指定时段用 ANY，未指定航空公司用空字符串，人数默认 1，默认按 departureAt asc 排序。"最便宜"使用 price asc。
 4.  创建订单必须遵守以下规则:
@@ -371,7 +376,7 @@ class BackendClient:
 
     def search_airports(self, query: str, limit: int) -> BackendResponse:
         return self._request(
-            "GET", "/api/airports/search", query={"q": query, "limit": limit}
+            "GET", "/api/airports/search", query={"q": query, "limit": limit, "match": "exact"}
         )
 
     def search_flights(self, criteria: dict[str, Any]) -> BackendResponse:
