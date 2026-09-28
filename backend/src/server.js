@@ -21,6 +21,12 @@ async function startServer() {
     console.log(`Server listening on http://localhost:${port}`);
     console.log(`MongoDB database: ${connection.name}`);
   });
+
+  // Must stay longer than the dev proxy's agent timeout (5s, see frontend/vite.config.ts)
+  // so the client is always the side that closes an idle connection first.
+  httpServer.keepAliveTimeout = 65_000;
+  // headersTimeout must stay greater than keepAliveTimeout.
+  httpServer.headersTimeout = 66_000;
 }
 
 async function shutdown(signal, exitCode = 0) {
@@ -63,6 +69,12 @@ process.on("SIGTERM", () => {
 process.on("unhandledRejection", (error) => {
   console.error("Unhandled promise rejection:", error);
   void shutdown("unhandledRejection", 1);
+});
+
+// Log before exiting instead of dying silently, so a crash can never look like "nothing happened".
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+  void shutdown("uncaughtException", 1);
 });
 
 try {
