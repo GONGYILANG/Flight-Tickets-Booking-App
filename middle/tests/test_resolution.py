@@ -21,8 +21,8 @@ class FakeBackend:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
 
-    def search_airports(self, query: str, limit: int) -> resolution.BackendResponse:
-        self.calls.append(("search_airports", query, limit))
+    def search_airports(self, query: str, limit: int, match: str) -> resolution.BackendResponse:
+        self.calls.append(("search_airports", query, limit, match))
         return resolution.BackendResponse(
             200, {"data": {"airports": [{"iataCode": "PEK"}]}}
         )
@@ -110,12 +110,24 @@ class ToolSchemaTests(unittest.TestCase):
 
 
 class BackendClientTests(unittest.TestCase):
-    def test_airport_tool_requests_exact_resolution_not_autocomplete(self) -> None:
+    def test_airport_tool_forwards_explicit_match_mode_and_rejects_invalid_modes(self) -> None:
         client = resolution.BackendClient("http://localhost:3000")
-        with patch(f"{resolution.__name__}.urlopen", return_value=FakeHTTPResponse(200, {"data": {"airports": []}})) as urlopen:
-            client.search_airports("SHA", 5)
-        self.assertEqual(urlopen.call_args.args[0].full_url,
-                         "http://localhost:3000/api/airports/search?q=SHA&limit=5&match=exact")
+        executor = resolution.ToolExecutor(client)
+        context = resolution.RequestContext(access_token=None, request_id=str(uuid.uuid4()))
+        for query, match in (("SHA", "exact"), ("Pudong", "fuzzy"), ("Bei", "fuzzy")):
+            with self.subTest(query=query, match=match), patch(
+                f"{resolution.__name__}.urlopen",
+                return_value=FakeHTTPResponse(200, {"data": {"airports": []}}),
+            ) as urlopen:
+                result = executor.execute("search_airports", json.dumps({"query": query, "match": match}), context)
+                self.assertTrue(result["ok"])
+                self.assertEqual(urlopen.call_args.args[0].full_url,
+                                 f"http://localhost:3000/api/airports/search?q={query}&limit=5&match={match}")
+        for invalid in ("unknown", None, 1):
+            with self.subTest(match=invalid), patch(f"{resolution.__name__}.urlopen") as urlopen:
+                result = executor.execute("search_airports", json.dumps({"query": "Pudong", "match": invalid}), context)
+                self.assertEqual(result["error"]["code"], "INVALID_TOOL_ARGUMENTS")
+                urlopen.assert_not_called()
 
     def test_session_endpoints_forward_ids_bodies_and_bearer_tokens(self) -> None:
         client = resolution.BackendClient("http://localhost:3000")
@@ -268,7 +280,7 @@ class ToolExecutorTests(unittest.TestCase):
     def test_extra_model_field_is_rejected(self) -> None:
         result = self.executor.execute(
             "search_airports",
-            '{"query":"Beijing","unexpected":true}',
+            '{"query":"Beijing","match":"fuzzy","unexpected":true}',
             self.context,
         )
 
@@ -356,7 +368,7 @@ class AssistantLoopTests(unittest.TestCase):
             id="call_airport_1",
             function=SimpleNamespace(
                 name="search_airports",
-                arguments='{"query":"Beijing"}',
+                arguments='{"query":"Beijing","match":"fuzzy"}',
             ),
         )
         tool_message = SimpleNamespace(
@@ -400,7 +412,7 @@ class AssistantLoopTests(unittest.TestCase):
         self.assertEqual(len(tool_results), 1)
         self.assertNotIn("must-not-reach-deepseek", json.dumps(second_messages, default=str))
         self.assertIs(second_messages[2], tool_message)
-        self.assertEqual(backend.calls, [("search_airports", "Beijing", 5)])
+        self.assertEqual(backend.calls, [("search_airports", "Beijing", 5, "fuzzy")])
         self.assertEqual(events[0]["tool"], "search_airports")
         self.assertEqual(events[0]["result"]["data"]["airports"], [{"iataCode": "PEK"}])
         self.assertNotIn("must-not-reach-deepseek", json.dumps(events))

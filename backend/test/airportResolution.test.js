@@ -31,7 +31,7 @@ const airports = [
   timezone: "UTC",
 }));
 
-test("exact AI resolution avoids SHA substring collisions; autocomplete remains fuzzy", async (t) => {
+test("explicit matching supports partial airport names and avoids code substring collisions", async (t) => {
   t.mock.method(Airport, "aggregate", async (pipeline) => {
     const conditions = pipeline[0].$match.$or;
     const limit = pipeline.find((stage) => stage.$limit).$limit;
@@ -60,6 +60,8 @@ test("exact AI resolution avoids SHA substring collisions; autocomplete remains 
   assert.deepEqual(await codes("Beijing", "exact"), ["PEK", "PKX"]);
   assert.deepEqual(await codes("pek", "exact"), ["PEK"]);
   assert.deepEqual(await codes("Bei"), ["PEK", "PKX"]);
+  assert.deepEqual(await codes("Pudong", "fuzzy"), ["PVG"]);
+  assert.deepEqual(await codes("Pudong", "exact"), []);
   assert.deepEqual(await codes("shang hai"), ["PVG"]);
   assert.deepEqual(await codes("  bei   jing  "), ["PEK", "PKX"]);
   assert.deepEqual(await codes("Beijing Capital"), ["PEK"]);
@@ -103,13 +105,13 @@ function transcript() {
   return messages;
 }
 
-test("airport cards remove duplicate/irrelevant options while the full trace stays intact", () => {
+test("airport cards deduplicate results without reinterpreting historical queries", () => {
   const messages = transcript();
   const original = structuredClone(messages);
   const events = toTurnEvents(messages);
   assert.deepEqual(
     events.map((event) => event.result.data.airports.map((a) => a.iataCode)),
-    [["PEK", "PKX"], ["PVG"]],
+    [["PEK", "PKX"], ["PVG"], ["IXC", "BWI"]],
   );
   assert.deepEqual(messages, original);
   const req = {
@@ -119,6 +121,15 @@ test("airport cards remove duplicate/irrelevant options while the full trace sta
   validateFinishTurn(req, null, () => {});
   assert.deepEqual(req.validatedBody.view.events, events);
   assert.deepEqual(req.validatedBody.messages, original);
+});
+
+test("three-letter city fragments keep their returned airport options", () => {
+  const messages = transcript().slice(0, 3);
+  messages[1].tool_calls[0].function.arguments = JSON.stringify({ query: "Bei" });
+  assert.deepEqual(
+    toTurnEvents(messages)[0].result.data.airports.map((airport) => airport.iataCode),
+    ["PEK", "PKX"],
+  );
 });
 
 test("tool errors and non-airport cards are preserved", () => {
@@ -141,7 +152,7 @@ test("tool errors and non-airport cards are preserved", () => {
   ]);
 });
 
-test("legacy session reads and identical completion retries use the corrected projection without DB migration", async (t) => {
+test("session reads and identical completion retries project unchanged tool results", async (t) => {
   const messages = transcript();
   const turn = {
     _id: "turn",

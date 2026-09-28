@@ -55,8 +55,8 @@ const bookings = (event: ChatEvent) => (event.result.data?.bookings ?? []) as Bo
               class="m-0! h-auto! min-h-10 max-w-full py-2! text-left! [&>span]:whitespace-normal"
               :disabled="!interactive"
               @click="emit('quick', `Use ${airport.name} (${airport.iataCode}).`)"
-              >{{ airport.iataCode }} · {{ airport.name }}</ElButton
-            >
+            >{{ airport.iataCode }} · {{ airport.name }}
+            </ElButton>
           </div>
         </section>
       </template>

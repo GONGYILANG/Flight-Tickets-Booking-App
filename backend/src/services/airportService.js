@@ -17,7 +17,7 @@ function toAirportResponse(airport) {
 
 export async function searchAirports({ query, limit, match = "fuzzy" }) {
   // Autocomplete tolerates spaced spelling ("shang hai" → "Shanghai").
-  // Exact AI resolution continues to require the complete literal name/code.
+  // Callers explicitly choose exact matching for a complete literal name/code.
   const escapedQuery = match === "exact"
     ? escapeRegularExpression(query)
     : query.split(/\s+/).map(escapeRegularExpression).join("\\s*");

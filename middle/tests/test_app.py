@@ -144,7 +144,7 @@ class ChatPersistenceTests(unittest.TestCase):
     def turns(self):
         return self.rest.sessions[self.session_id]["turns"]
 
-    def tool_completion(self, name="search_airports", arguments='{"query":"Beijing"}'):
+    def tool_completion(self, name="search_airports", arguments='{"query":"Beijing","match":"fuzzy"}'):
         return SimpleNamespace(choices=[SimpleNamespace(message=ChatCompletionMessage(
             role="assistant", content=None, reasoning_content="Look up exact airport IDs.",
             tool_calls=[{"id": "call-1", "type": "function", "function": {"name": name, "arguments": arguments}}],

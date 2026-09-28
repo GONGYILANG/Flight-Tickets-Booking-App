@@ -97,7 +97,7 @@ Responses contain `sessionId`, `requestId`, `message`, `replayed`, and an ordere
 
 | Tool | Backend endpoint | Notes |
 | --- | --- | --- |
-| `search_airports` | `GET /api/airports/search` | Exact full city/airport name or IATA resolution; fixed `limit=5, match=exact`. |
+| `search_airports` | `GET /api/airports/search` | Explicit `match`: `fuzzy` for names/fragments, `exact` for IATA codes; fixed `limit=5`. |
 | `search_flights` | `GET /api/flights/search` | Searches routes and filters; fixed `page=1, limit=5`. |
 | `get_flight` | `GET /api/flights/:flightId` | Retrieves current flight details. |
 | `create_booking` | `POST /api/bookings` | Adds `source=AI` and uses the canonical requestId as the idempotency key. |
@@ -106,7 +106,9 @@ Responses contain `sessionId`, `requestId`, `message`, `replayed`, and an ordere
 
 All declared tool fields are required by the strict schema. Optional flight filters use `departure_period="ANY"` and `airline_code=""`; Python omits these filters from the backend query. See the [backend API reference](../docs/api-reference.md) for REST contracts.
 
-Airport resolution uses full English city names or exact codes rather than the UI's fuzzy autocomplete. Backend event projections deduplicate airport options and remove old code-substring mismatches while retaining full tool transcripts. Airport results alone do not establish flight availability or that a city's other airports do not exist.
+Airport resolution translates user-provided names into English city names or distinctive airport keywords and uses fuzzy search. The model explicitly selects exact matching for IATA codes. Query length does not determine matching mode. The prompt requires one query per unresolved location before inspecting results, checking candidates' cityName and name against the city or airport the user mentioned, and reusing resolved locations. Empty or irrelevant results allow a justified shorter name, spelling, or translation correction; unresolved ambiguity prompts clarification in the user's language. Successful lookups must not trigger speculative code/name searches. These are model instructions, not a hard limit on airport calls.
+
+Backend event projections omit empty airport cards and deduplicate IATA codes without guessing query intent or filtering results by query length. Historical tool results remain unchanged, including earlier irrelevant matches; prompt changes apply to subsequent model requests. Airport results alone do not establish flight availability or that a city's other airports do not exist.
 
 ## How it works
 

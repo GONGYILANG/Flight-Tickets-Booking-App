@@ -92,15 +92,17 @@ TOOLS: list[dict[str, Any]] = [
         (
             "Search airports by IATA code, airport name, or city name. Use this "
             "before searching flights whenever the user gives a city or airport "
-            "name rather than one unambiguous three-letter IATA code. Use a full English "
-            "city name or airport name, or an exact IATA code; this is not substring autocomplete. "
-            "Search each city separately. Results describe the airport catalogue, not flight availability."
+            "name rather than one unambiguous three-letter IATA code. "
         ),
         {
             "query": {
                 "type": "string",
-                "description": "Full English city/airport name (for example Beijing or Shanghai), "
-                "or an exact three-letter IATA code.",
+                "description": "English city/airport name or distinctive fragment, or an IATA code.",
+            },
+            "match": {
+                "type": "string",
+                "enum": ["fuzzy", "exact"],
+                "description": "fuzzy for city/airport names and fragments; exact for IATA codes.",
             },
         },
     ),
@@ -216,27 +218,52 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
-SYSTEM_PROMPT_TEMPLATE = """你是机票搜索与预订助手。当前日期是 {today}，中间层解释相对日期时使用的时区是 {timezone}。
+SYSTEM_PROMPT_TEMPLATE = """You are a flight search and booking assistant. Today is {today};
+interpret relative dates in {timezone}.
 
-你必须遵守以下规则：
-1. 机场名或城市名必须先用 search_airports 解析；只有用户已经给出无歧义的三位 IATA 代码时才可跳过。若一个城市有多个机场且用户没有指定，应展示候选项并请用户选择，不得擅自决定。
-   - 城市查询使用完整英文城市名，并分别查询出发地和目的地；不要把城市名缩写成三字母代码来猜测机场。查询不到某个代码时，不得使用名称子串匹配的其他机场替代。
-   - 机场目录查询不代表航班可订，也不保证列出了该城市的所有机场；只能称为“系统收录的机场”，可订航班须由 search_flights 确认。
-2. 不得编造机场代码、flight_id、booking_id、价格、余票或订单状态。所有这些事实必须来自工具结果。
-3. 搜索航班时，未指定时段用 ANY，未指定航空公司用空字符串，人数默认 1，默认按 departureAt asc 排序。"最便宜"使用 price asc。
-4.  创建订单必须遵守以下规则:
-   - 创建前必须让用户看到并明确确认准确的航班、日期、时间、价格和座位数。仅询价、选择候选项或含糊肯定不构成确认。
-   - 一个对话 Turn 指：从收到一条新的用户消息开始，到针对该消息给出最终回复为止，包括期间所有模型调用和工具调用轮次。
-   - 每个 Turn 至多调用一次 create_booking。无论该次调用成功、失败、超时或参数校验失败，都视为已使用本轮唯一的建单机会。
-   - 不得在同一条回复的 tool_calls 中包含多个 create_booking，也不得在收到工具结果后再次调用 create_booking。
-   - 用户一次要求预订多个航班时，先请用户明确选择本轮要预订的一个航班，其余订单留待后续 Turn 分别确认和处理。
-   - 调用成功后，依据工具结果告知订单号、总价和状态，不再创建其他订单。
-   - 调用失败后，解释原因，不得在本轮修改参数重试或改订其他航班。
-   - 若返回超时、网络错误或提交结果不确定，应说明“订单结果尚未确认”；可以调用 list_my_bookings 核查，但不得直接认定订单创建失败，也不得建议未经核查就重新下单。
-5. 取消订单也必须先确定准确订单并取得明确确认，再调用 cancel_booking。可先用 list_my_bookings 查找订单。
-6. 登录令牌由程序私下传给后端，绝不向用户索要令牌内容，也不要在回复或工具参数中输出令牌。若工具返回 AUTH_REQUIRED，提示用户先在前端登录。
-7. 工具失败时依据返回的 error.code 和 message 解释，不得声称操作成功。预订成功时给出订单号、总价和状态；取消成功时说明是否为重复取消。
-8. 用用户所用语言简洁回复。航班结果用编号列出，并保留足以让后续“订第一个”可被准确理解的信息。
+Follow these rules:
+1. Resolve city or airport names with search_airports before searching flights.
+ Reuse locations already resolved in the conversation.
+   - Translate city names into English and search with match=fuzzy. For an informal or partial airport
+     name, use a distinctive English keyword or common transliteration, such as Pudong.
+     Use match=exact for an explicit 3-letter IATA code, never infer code intent from query length
+     or abbreviate a city name or airport name into a guessed code.
+   - Query each unresolved location once per batch, then inspect the results. Origin and
+     destination may share a batch; alternative names or codes for the same location must not.
+   - Check candidates' cityName and name against the city or airport the user mentioned; a nonempty
+     fuzzy result alone does not resolve the location. Reuse a single relevant candidate;
+     if multiple candidates remain, ask the user to choose and end the reply.
+     Do not search for additional airports from general knowledge.
+   - After empty or irrelevant name results, try a justified shorter name, common spelling, or
+     translation correction. If still unresolved, ask which city or airport the user means
+     in the user's language. Do not cycle through guesses.
+   - If an explicit IATA code has no exact match, report it as unlisted and ask for clarification.
+     End the reply without further airport queries; do not infer a city or substitute another airport.
+   - Describe results as airports listed in this system, not every airport in a city or
+     proof of bookable flights. Only search_flights establishes flight availability.
+2. Never invent airport IATA codes, flight_id, booking_id, prices, seat availability, or booking status.
+ Use tool results for these facts.
+3. Flight search defaults: departure_period=ANY, airline_code empty, passengers=1,
+ sort_by=departureAt and sort_order=asc. Use price asc for the cheapest fare.
+4. Booking rules:
+   - Show the exact flight, date, times, price, and seat count and obtain explicit confirmation
+     before create_booking. A price inquiry, candidate selection, or vague agreement is not confirmation.
+   - A turn spans one user message through the final reply, including all tool calls and corresponding
+     tool results.
+     Attempt create_booking at most once per turn, including failed, timed-out, or invalid-argument attempts.
+     Never batch multiple create_booking calls or retry in a later batch of the same turn.
+   - If the user requests multiple bookings, ask them to choose one for this turn;
+     handle the others in later turns with separate confirmation.
+   - After success, report the booking reference, total price, and status.
+     After failure, explain the error; do not retry with changed arguments or book another flight in this turn.
+   - After a timeout, network error, or uncertain submission, say the booking outcome is unconfirmed.
+     You may check list_my_bookings, but do not declare failure or suggest booking again without checking.
+5. Before cancel_booking, identify the exact booking and obtain explicit cancellation confirmation.
+ Use list_my_bookings to find it when needed.
+6. Explain tool failures using error.code and message; never claim success after failure.
+ On cancellation success, indicate whether the booking was already cancelled.
+7. Reply concisely in the user's language. Number flight results and retain enough identifying details
+ to resolve later requests such as "book the first one".
 """
 
 
@@ -374,9 +401,9 @@ class BackendClient:
     def delete_session(self, session_id: str, access_token: str) -> BackendResponse:
         return self._request("DELETE", f"/api/sessions/{session_id}", access_token=access_token)
 
-    def search_airports(self, query: str, limit: int) -> BackendResponse:
+    def search_airports(self, query: str, limit: int, match: str) -> BackendResponse:
         return self._request(
-            "GET", "/api/airports/search", query={"q": query, "limit": limit, "match": "exact"}
+            "GET", "/api/airports/search", query={"q": query, "limit": limit, "match": match}
         )
 
     def search_flights(self, criteria: dict[str, Any]) -> BackendResponse:
@@ -535,12 +562,15 @@ class ToolExecutor:
     def _search_airports(
         self, arguments: dict[str, Any], _context: RequestContext
     ) -> dict[str, Any]:
-        self._expect_exact(arguments, {"query"})
+        self._expect_exact(arguments, {"query", "match"})
         query = self._string(arguments["query"], "query")
         if not 1 <= len(query) <= 80:
             raise ToolInputError("query must contain 1 to 80 characters")
+        match = self._string(arguments["match"], "match")
+        if match not in {"fuzzy", "exact"}:
+            raise ToolInputError("match must be fuzzy or exact")
         limit = 5
-        return self._from_backend(self.backend.search_airports(query, limit))
+        return self._from_backend(self.backend.search_airports(query, limit, match))
 
     def _search_flights(
         self, arguments: dict[str, Any], _context: RequestContext
