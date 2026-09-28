@@ -208,51 +208,56 @@ function applyFilters(value: FilterValue) {
       <header class="mb-6 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1
-            class="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900"
+            class="flex flex-wrap items-center gap-2 font-display text-2xl font-bold
+             tracking-tight text-slate-900"
           >
-            <span>{{ originAirport?.cityName ?? search.origin }} ({{ search.origin }})</span
-            ><ArrowRight :size="22" aria-hidden="true" /><span
-              >{{ destinationAirport?.cityName ?? search.destination }} ({{
-                search.destination
-              }})</span
-            >
+            <span>{{ originAirport?.cityName ?? search.origin }} ({{ search.origin }})</span>
+            <ArrowRight :size="22" aria-hidden="true" />
+            <span>
+              {{ destinationAirport?.cityName ?? search.destination }} 
+              ({{ search.destination }})
+            </span>
           </h1>
           <p class="mt-2 text-sm text-slate-500">
-            {{ formatShortDate(search.departureDate) }} · {{ search.passengers }} traveler{{
-              search.passengers === 1 ? '' : 's'
-            }}
+            {{ formatShortDate(search.departureDate) }} · {{ search.passengers }} traveler
+            {{ search.passengers === 1 ? '' : 's' }}
           </p>
         </div>
         <RouterLink
-          class="self-start rounded-lg border border-blue-700 bg-white shadow-sm transition-colors px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 sm:self-auto"
+          class="self-start rounded-full border border-blue-700/25 bg-blue-700/5
+           px-5 py-2.5 text-sm font-semibold text-blue-700 shadow-sm transition-all
+           hover:border-blue-700/40 hover:bg-blue-700/10 sm:self-auto"
           :to="{ path: '/flights', query: route.query }"
-          >Modify search</RouterLink
-        >
+          >Modify search
+        </RouterLink>
       </header>
       <div
-        class="grid auto-cols-[150px] grid-flow-col overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 sm:grid-cols-5 sm:grid-flow-row"
+        class="grid auto-cols-[150px] grid-flow-col overflow-x-auto rounded-2xl border
+         border-slate-200 bg-surface shadow-sm shadow-slate-900/5 ring-1 ring-slate-900/5
+         sm:grid-cols-5 sm:grid-flow-row"
         aria-label="Departure dates"
       >
         <ElButton
           v-for="date in dates"
           :key="date"
           text
-          class="m-0! h-auto! rounded-none! border-r! border-slate-200! px-5! py-4!"
+          class="m-0! h-auto! rounded-none! border-r! border-slate-200! px-5! py-4!
+           first:rounded-l-2xl! last:rounded-r-2xl! last:border-r-0!"
           :type="date === search.departureDate ? 'primary' : 'default'"
           :bg="date === search.departureDate"
           :aria-pressed="date === search.departureDate"
           @click="updateSearch({ departureDate: date, page: 1 })"
         >
-          <span class="grid gap-2"
-            ><strong>{{ formatShortDate(date) }}</strong
-            ><span class="text-xs">{{ datePrices[date] ?? 'Loading…' }}</span></span
-          >
+          <span class="grid gap-2">
+            <strong>{{ formatShortDate(date) }}</strong>
+            <span class="text-xs">{{ datePrices[date] ?? 'Loading…' }}</span>
+          </span>
         </ElButton>
       </div>
       <div class="my-6 flex flex-wrap items-center justify-between gap-4">
-        <strong
-          >{{ pagination.totalItems }} flight{{ pagination.totalItems === 1 ? '' : 's' }}</strong
-        >
+        <strong>
+          {{ pagination.totalItems }} flight{{ pagination.totalItems === 1 ? '' : 's' }}
+        </strong>
         <div class="flex flex-wrap items-center gap-3">
           <ElButton :icon="ListFilter" @click="drawerOpen = true">Filters</ElButton>
           <ElSelect
@@ -261,10 +266,9 @@ function applyFilters(value: FilterValue) {
             :suffix-icon="ChevronDown"
             class="w-52!"
           >
-            <ElOption value="departureAt:asc" label="Departure time" /><ElOption
-              value="price:asc"
-              label="Price, low to high"
-            /><ElOption value="price:desc" label="Price, high to low" />
+            <ElOption value="departureAt:asc" label="Departure time" />
+            <ElOption value="price:asc" label="Price, low to high"/>
+            <ElOption value="price:desc" label="Price, high to low" />
           </ElSelect>
         </div>
       </div>

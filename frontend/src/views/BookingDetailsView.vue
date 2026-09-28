@@ -90,13 +90,14 @@ async function confirmCancel() {
         <h1 class="text-2xl font-semibold tracking-tight break-all">
           Booking {{ booking.bookingReference }}
         </h1>
-        <ElTag :type="booking.status === 'CONFIRMED' ? 'success' : 'danger'">{{
-          booking.status === 'CONFIRMED' ? 'Confirmed' : 'Cancelled'
-        }}</ElTag>
+        <ElTag :type="booking.status === 'CONFIRMED' ? 'success' : 'danger'">
+          {{ booking.status === 'CONFIRMED' ? 'Confirmed' : 'Cancelled' }}
+        </ElTag>
       </div>
       <ElAlert v-if="notice" :title="notice" type="success" :closable="false" role="status" />
       <div
-        class="flex flex-wrap items-center justify-between gap-5 rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 sm:p-6"
+        class="flex flex-wrap items-center justify-between gap-5 rounded-xl border border-slate-200
+         bg-surface shadow-sm shadow-slate-900/5 p-5 sm:p-6"
       >
         <div>
           <strong>{{ booking.flight.flightNumber }} · {{ booking.flight.airline.name }}</strong>
@@ -112,9 +113,9 @@ async function confirmCancel() {
         </div>
         <div class="space-y-2">
           <p class="text-xs text-slate-500">Total</p>
-          <strong class="text-base text-blue-700">{{
-            formatMoney(booking.pricing.totalAmount, booking.pricing.currency)
-          }}</strong>
+          <strong class="text-base text-blue-700">
+            {{ formatMoney(booking.pricing.totalAmount, booking.pricing.currency) }}
+          </strong>
         </div>
         <div class="space-y-2">
           <p class="text-xs text-slate-500">Booked via</p>
@@ -134,19 +135,19 @@ async function confirmCancel() {
         <FlightItinerary :flight="booking.flight" />
       </section>
       <section
-        class="rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 sm:p-6"
+        class="rounded-xl border border-slate-200 bg-surface shadow-sm shadow-slate-900/5 p-5 sm:p-6"
       >
         <h2 class="mb-5 text-lg font-semibold">Booking details</h2>
         <ElDescriptions :column="1" border label-width="160">
-          <ElDescriptionsItem label="Price per traveler">{{
-            formatMoney(booking.pricing.unitAmount, booking.pricing.currency)
-          }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="Created">{{
-            new Date(booking.createdAt).toLocaleString('en-US')
-          }}</ElDescriptionsItem>
-          <ElDescriptionsItem v-if="booking.cancelledAt" label="Cancelled">{{
-            new Date(booking.cancelledAt).toLocaleString('en-US')
-          }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="Price per traveler">
+            {{ formatMoney(booking.pricing.unitAmount, booking.pricing.currency) }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="Created">
+            {{ new Date(booking.createdAt).toLocaleString('en-US') }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem v-if="booking.cancelledAt" label="Cancelled">
+            {{ new Date(booking.cancelledAt).toLocaleString('en-US') }}
+          </ElDescriptionsItem>
         </ElDescriptions>
       </section>
     </section>

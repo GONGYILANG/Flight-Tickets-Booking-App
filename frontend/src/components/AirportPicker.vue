@@ -88,8 +88,8 @@ onBeforeUnmount(() => {
           class="m-0!"
           size="small"
           @click.stop="search(city)"
-          >{{ city }}</ElButton
-        >
+          >{{ city }}
+        </ElButton>
       </div>
     </template>
     <ElOption

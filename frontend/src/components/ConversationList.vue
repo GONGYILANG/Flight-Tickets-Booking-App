@@ -19,8 +19,8 @@ function choose(id?: string) {
       :icon="Plus"
       :disabled="chat.busy || chat.loadingSessions || !chat.initialized"
       @click="choose()"
-      >New conversation</ElButton
-    >
+      >New conversation
+    </ElButton>
     <ElButton
       class="m-0! w-full"
       text
@@ -28,8 +28,8 @@ function choose(id?: string) {
       :loading="chat.loadingSessions"
       :disabled="chat.busy"
       @click="chat.initialize()"
-      >Refresh conversations</ElButton
-    >
+      >Refresh conversations
+    </ElButton>
     <p v-if="chat.loadingSessions" class="text-xs text-slate-500" role="status">
       Loading conversations…
     </p>
@@ -52,8 +52,8 @@ function choose(id?: string) {
         :aria-pressed="conversation.id === chat.currentId"
         :disabled="chat.busy || chat.loadingSessions"
         @click="choose(conversation.id)"
-        ><span class="max-w-48 truncate">{{ conversation.title }}</span></ElButton
-      >
+        ><span class="max-w-48 truncate">{{ conversation.title }}</span>
+      </ElButton>
     </div>
   </nav>
 </template>

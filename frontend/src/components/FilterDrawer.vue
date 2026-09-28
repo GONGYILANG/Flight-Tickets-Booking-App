@@ -47,9 +47,9 @@ function reset() {
           aria-label="Airline"
         >
           <ElRadio value="">Any airline</ElRadio>
-          <ElRadio v-for="airline in airlines" :key="airline.code" :value="airline.code"
-            >{{ airline.name }} ({{ airline.code }})</ElRadio
-          >
+          <ElRadio v-for="airline in airlines" :key="airline.code" :value="airline.code">
+            {{ airline.name }} ({{ airline.code }})
+          </ElRadio>
         </ElRadioGroup>
       </ElFormItem>
       <ElFormItem label="Departure time">
@@ -58,8 +58,9 @@ function reset() {
           aria-label="Departure time"
           class="flex flex-wrap gap-1"
         >
-          <ElRadio value="">Any time</ElRadio><ElRadio value="MORNING">Morning</ElRadio
-          ><ElRadio value="AFTERNOON">Afternoon</ElRadio>
+          <ElRadio value="">Any time</ElRadio>
+          <ElRadio value="MORNING">Morning</ElRadio>
+          <ElRadio value="AFTERNOON">Afternoon</ElRadio>
         </ElRadioGroup>
       </ElFormItem>
       <ElFormItem label="Origin airport">
@@ -68,9 +69,9 @@ function reset() {
           class="flex! flex-col items-start!"
           aria-label="Origin airport"
         >
-          <ElRadio v-for="airport in originAirports" :key="airport.id" :value="airport.iataCode"
-            >{{ airport.iataCode }} · {{ airport.cityName }}</ElRadio
-          >
+          <ElRadio v-for="airport in originAirports" :key="airport.id" :value="airport.iataCode">
+            {{ airport.iataCode }} · {{ airport.cityName }}
+          </ElRadio>
         </ElRadioGroup>
       </ElFormItem>
       <ElFormItem label="Destination airport">
@@ -83,8 +84,8 @@ function reset() {
             v-for="airport in destinationAirports"
             :key="airport.id"
             :value="airport.iataCode"
-            >{{ airport.iataCode }} · {{ airport.cityName }}</ElRadio
-          >
+            >{{ airport.iataCode }} · {{ airport.cityName }}
+          </ElRadio>
         </ElRadioGroup>
       </ElFormItem>
       <ElButton :icon="RotateCcw" text @click="reset">Reset</ElButton>

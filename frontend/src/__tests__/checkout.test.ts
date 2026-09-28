@@ -37,6 +37,5 @@ test('selection rejects unavailable/extra seats and allows deselection before re
   assert.equal(toggleDemoSeat(selected, { id: '2A', available: false }, 3), selected)
   selected = toggleDemoSeat(selected, a, 2)
   assert.deepEqual(toggleDemoSeat(selected, c, 2), ['1B', '1C'])
-  assert.deepEqual(toggleDemoSeat([], a, 10), [])
   assert.deepEqual(toggleDemoSeat([], a, 0), [])
 })

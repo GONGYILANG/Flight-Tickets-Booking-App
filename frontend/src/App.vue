@@ -4,7 +4,9 @@ import en from 'element-plus/es/locale/lang/en'
 import { onMounted, ref } from 'vue'
 import { RouterView } from 'vue-router'
 import { getHealth } from './api'
+import { useThemeStore } from './stores/theme'
 
+useThemeStore()
 const serviceUnavailable = ref(false)
 
 async function checkHealth() {
@@ -33,6 +35,10 @@ onMounted(checkHealth)
         <ElButton size="small" @click="checkHealth">Retry</ElButton>
       </template>
     </ElAlert>
-    <RouterView />
+    <RouterView v-slot="{ Component }">
+      <Transition name="page" mode="out-in">
+        <component :is="Component" />
+      </Transition>
+    </RouterView>
   </ElConfigProvider>
 </template>

@@ -14,17 +14,19 @@ const emit = defineEmits<{ select: [Flight] }>()
     :data="flights"
     row-key="id"
     size="default"
-    class="w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm shadow-slate-900/5 [&_th]:bg-slate-50! [&_th]:py-3! [&_th]:font-medium! [&_th]:text-slate-500! [&_td]:py-3!"
+    class="w-full overflow-hidden rounded-2xl border border-slate-200 shadow-sm
+     shadow-slate-900/5 ring-1 ring-slate-900/5 [&_th]:bg-slate-50! [&_th]:py-3!
+     [&_th]:font-medium! [&_th]:text-slate-500! [&_td]:py-3! [&_.el-table\_\_row]:transition-colors"
     aria-label="Flight results"
     empty-text="No flights found"
   >
     <ElTableColumn label="Flight" min-width="185">
-      <template #default="{ row }"
-        ><div class="py-3">
+      <template #default="{ row }">
+        <div class="py-3">
           <strong class="text-base">{{ row.flightNumber }}</strong>
           <p class="mt-1 text-xs text-slate-500">{{ row.airline.name }}</p>
-        </div></template
-      >
+        </div>
+      </template>
     </ElTableColumn>
     <ElTableColumn label="Departure" min-width="140">
       <template #default="{ row }"
@@ -35,12 +37,12 @@ const emit = defineEmits<{ select: [Flight] }>()
       >
     </ElTableColumn>
     <ElTableColumn label="Arrival" min-width="140">
-      <template #default="{ row }"
-        ><span class="mr-2 text-lg font-semibold tabular-nums">{{
-          formatTime(row.arrivalAt, row.destinationAirport.timezone)
-        }}</span
-        ><span class="text-xs text-slate-500">{{ row.destinationAirport.iataCode }}</span></template
-      >
+      <template #default="{ row }">
+        <span class="mr-2 text-lg font-semibold tabular-nums">
+          {{formatTime(row.arrivalAt, row.destinationAirport.timezone)}}
+        </span>
+        <span class="text-xs text-slate-500">{{ row.destinationAirport.iataCode }}</span>
+      </template>
     </ElTableColumn>
     <ElTableColumn label="Details" min-width="185">
       <template #default="{ row }">
@@ -51,15 +53,17 @@ const emit = defineEmits<{ select: [Flight] }>()
         <p v-else class="text-xs text-slate-500">
           Nonstop · {{ formatDuration(row.durationMinutes) }}
         </p>
-        <p class="mt-1 text-xs text-green-700 dark:text-green-400">{{ row.availableSeats }} seats left</p>
+        <p class="mt-1 text-xs text-green-700 dark:text-green-400">
+          {{ row.availableSeats }} seats left
+        </p>
       </template>
     </ElTableColumn>
     <ElTableColumn label="Price" min-width="150">
-      <template #default="{ row }"
-        ><strong class="text-base text-blue-700 tabular-nums">{{
-          formatMoney(row.price.amount, row.price.currency)
-        }}</strong></template
-      >
+      <template #default="{ row }">
+        <strong class="text-base text-blue-700 tabular-nums">
+          {{formatMoney(row.price.amount, row.price.currency)}}
+        </strong>
+      </template>
     </ElTableColumn>
     <ElTableColumn label="Action" width="135" fixed="right">
       <template #default="{ row }">
@@ -70,14 +74,14 @@ const emit = defineEmits<{ select: [Flight] }>()
           size="default"
           :disabled="disabled"
           @click="emit('select', row as Flight)"
-          >Select</ElButton
-        >
+          >Select
+        </ElButton>
         <RouterLink
           v-else
           class="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline"
           :to="{ path: `/flights/${row.id}`, query: { passengers } }"
-          >View flight<ChevronRight :size="16" aria-hidden="true"
-        /></RouterLink>
+          >View flight<ChevronRight :size="16" aria-hidden="true"/>
+        </RouterLink>
       </template>
     </ElTableColumn>
   </ElTable>

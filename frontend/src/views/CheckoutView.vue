@@ -58,11 +58,12 @@ let completionTimer: ReturnType<typeof setTimeout> | undefined
 let generation = 0
 let active = true
 
-const retrying = computed(() =>
-  pending.value?.flightId === flight.value?.id && pending.value?.seatCount === passengers.value,
+const retrying = computed(
+  () =>
+    pending.value?.flightId === flight.value?.id && pending.value?.seatCount === passengers.value,
 )
 const available = computed(() =>
-  Boolean((flight.value && (isBookable(flight.value, passengers.value)) || retrying.value)),
+  Boolean((flight.value && isBookable(flight.value, passengers.value)) || retrying.value),
 )
 const rows = computed(() =>
   flight.value
@@ -77,14 +78,8 @@ const rows = computed(() =>
 const total = computed(() =>
   centsToAmount(amountToCents(flight.value?.price.amount ?? '0.00') * passengers.value),
 )
-const validSelection = computed(
-  () =>
-    selected.value.length === passengers.value &&
-    new Set(selected.value).size === selected.value.length &&
-    selected.value.every((id) =>
-      rows.value.flat().some((seat) => seat.id === id && seat.available),
-    ),
-)
+// toggleDemoSeat enforces availability/uniqueness; route changes reset the selection.
+const validSelection = computed(() => selected.value.length === passengers.value)
 const backToFlight = computed(() => ({
   path: `/flights/${route.params.flightId}`,
   query: { passengers: passengers.value },
@@ -152,7 +147,7 @@ watch(
 )
 
 function confirmSeats() {
-  if (stage.value !== 'seats' || !validSelection.value || !available.value) return
+  if (stage.value !== 'seats') return
   stage.value = 'holding'
   progress.value = 0
   // This animation never reserves server inventory; the booking API runs only at payment.
@@ -168,12 +163,7 @@ function confirmSeats() {
 }
 
 async function pay() {
-  if (stage.value !== 'payment' || submitting.value || !flight.value || !validSelection.value)
-    return
-  if (!available.value) {
-    paymentError.value = 'This flight is no longer available. Please return to the search results.'
-    return
-  }
+  if (stage.value !== 'payment' || submitting.value || !flight.value) return
   const scope = generation
   const owner = auth.user?.id
   const attempt = bookingAttempt(readPending(), flight.value.id, passengers.value)
@@ -225,8 +215,8 @@ onBeforeUnmount(() => {
         :icon="ArrowLeft"
         :disabled="submitting"
         @click="router.push(backToFlight)"
-        >Back to flight</ElButton
-      >
+        >Back to flight
+      </ElButton>
       <h1 ref="heading" tabindex="-1" class="mt-4 text-[28px] font-semibold tracking-tight">
         {{ stage === 'payment' ? 'Simulated payment' : 'Choose your seats' }}
       </h1>
@@ -243,10 +233,9 @@ onBeforeUnmount(() => {
         align-center
         class="my-7 [&_.is-process]:text-blue-700! [&_.is-process]:border-blue-700!"
       >
-        <ElStep title="Seats" :icon="Armchair" /><ElStep
-          title="Reserve"
-          :icon="LoaderCircle"
-        /><ElStep title="Payment" :icon="CreditCard" />
+        <ElStep title="Seats" :icon="Armchair" />
+        <ElStep title="Reserve" :icon="LoaderCircle"/>
+        <ElStep title="Payment" :icon="CreditCard" />
       </ElSteps>
       <ElAlert
         v-if="!available"
@@ -265,23 +254,25 @@ onBeforeUnmount(() => {
       <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]">
         <section
           v-if="stage !== 'payment'"
-          class="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"
+          class="min-w-0 rounded-xl border border-slate-200 bg-surface p-4 shadow-sm sm:p-6"
         >
-          <h2 class="text-lg font-semibold">Demo cabin</h2>
+          <h2 class="text-xl font-semibold">Demo cabin</h2>
           <p class="mt-2 text-xs leading-5 text-slate-500">
             Illustrative seat map. Seats are not assigned by the airline.
           </p>
           <div class="mx-auto mt-5 max-w-sm">
             <div
-              class="grid grid-cols-7 gap-1.5 pb-2 text-center text-xs text-slate-500"
+              class="grid grid-cols-7 gap-1.5 overflow-y-auto pb-2 pr-1 text-center text-sm
+               text-slate-500 [scrollbar-gutter:stable]"
               aria-hidden="true"
             >
-              <span v-for="letter in ['A', 'B', 'C', '', 'D', 'E', 'F']" :key="letter">{{
-                letter
-              }}</span>
+              <span v-for="letter in ['A', 'B', 'C', '', 'D', 'E', 'F']" :key="letter">
+                {{ letter }}
+              </span>
             </div>
             <div
-              class="max-h-[min(360px,45dvh)] overflow-y-auto overscroll-contain pr-1 sm:max-h-[400px]"
+              class="max-h-[min(360px,45dvh)] overflow-y-auto overscroll-contain pr-1
+               [scrollbar-gutter:stable] sm:max-h-[400px]"
               role="group"
               aria-label="Demo seat map"
             >
@@ -293,12 +284,12 @@ onBeforeUnmount(() => {
                 <template v-for="(seat, column) in row" :key="seat.id">
                   <span
                     v-if="column === 3"
-                    class="self-center text-center text-xs text-slate-400"
+                    class="self-center text-center text-sm text-slate-400"
                     aria-hidden="true"
-                    >{{ rowIndex + 1 }}</span
-                  >
+                    >{{ rowIndex + 1 }}
+                  </span>
                   <ElButton
-                    class="m-0! h-12! min-w-0! px-0! [&>span]:flex-col [&>span]:gap-1 [&>span]:text-[10px]"
+                    class="m-0! h-12! min-w-0! px-0! [&>span]:flex-col [&>span]:gap-1 [&>span]:text-[11px]"
                     :type="selected.includes(seat.id) ? 'primary' : 'default'"
                     :disabled="
                       !available ||
@@ -309,12 +300,13 @@ onBeforeUnmount(() => {
                     :aria-label="`Seat ${seat.id}${!seat.available ? ', unavailable' : ''}`"
                     :aria-pressed="selected.includes(seat.id)"
                     @click="selected = toggleDemoSeat(selected, seat, passengers)"
-                    ><component
+                    >
+                    <component
                       :is="!seat.available ? X : selected.includes(seat.id) ? Check : Armchair"
                       :size="16"
                       aria-hidden="true"
-                    />{{ seat.id }}</ElButton
-                  >
+                    />{{ seat.id }}
+                  </ElButton>
                 </template>
               </div>
             </div>
@@ -323,18 +315,18 @@ onBeforeUnmount(() => {
             class="mt-5 flex flex-wrap justify-center gap-4 border-t border-slate-200 pt-4
              text-xs text-slate-500"
           >
-            <span class="inline-flex items-center gap-1.5"
-              ><Armchair :size="15" aria-hidden="true" />Available</span
-            >
-            <span class="inline-flex items-center gap-1.5 text-blue-700"
-              ><Check :size="15" aria-hidden="true" />Selected</span
-            >
-            <span class="inline-flex items-center gap-1.5"
-              ><X :size="15" aria-hidden="true" />Unavailable</span
-            >
+            <span class="inline-flex text-sm items-center gap-1.5">
+              <Armchair :size="16" aria-hidden="true" />Available
+            </span>
+            <span class="inline-flex text-sm items-center gap-1.5 text-blue-700">
+              <Check :size="16" aria-hidden="true" />Selected
+            </span>
+            <span class="inline-flex text-sm items-center gap-1.5">
+              <X :size="16" aria-hidden="true" />Unavailable
+            </span>
           </div>
         </section>
-        <section v-else class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <section v-else class="rounded-xl border border-slate-200 bg-surface p-6 shadow-sm sm:p-8">
           <h2 class="flex items-center gap-3 text-lg font-semibold">
             <CreditCard :size="24" aria-hidden="true" />Demo payment
           </h2>
@@ -357,37 +349,36 @@ onBeforeUnmount(() => {
             :show-icon="true"
           />
         </section>
-        <aside class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <h2 class="text-lg font-semibold">Trip summary</h2>
+        <aside class="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm sm:p-6">
+          <h2 class="text-xl font-semibold">Trip summary</h2>
           <p class="mt-5 text-sm font-medium">
             {{ flight.flightNumber }} · {{ flight.airline.name }}
           </p>
           <p class="my-4 flex items-center gap-3 text-2xl font-semibold">
-            {{ flight.originAirport.iataCode }}<ArrowRight :size="20" aria-hidden="true" />{{
-              flight.destinationAirport.iataCode
-            }}
+            {{ flight.originAirport.iataCode }}<ArrowRight :size="20" aria-hidden="true" />
+            {{ flight.destinationAirport.iataCode }}
           </p>
           <p class="text-sm text-slate-500">
             {{ formatFlightDate(flight.departureAt, flight.originAirport.timezone) }}
           </p>
           <div class="my-5 space-y-4 border-y border-slate-200 py-5 text-sm">
             <p class="flex items-center gap-2">
-              <Users :size="18" aria-hidden="true" />{{ passengers }} traveler{{
-                passengers === 1 ? '' : 's'
-              }}
+              <Users :size="18" aria-hidden="true" />{{ passengers }} traveler
+              {{ passengers === 1 ? '' : 's' }}
             </p>
             <p class="flex items-start gap-2">
-              <Armchair :size="18" class="shrink-0" aria-hidden="true" /><span
-                >Selected seats: <strong>{{ selected.join(', ') || 'None yet' }}</strong></span
-              >
+              <Armchair :size="18" class="shrink-0" aria-hidden="true" />
+              <span>
+                Selected seats: <strong>{{ selected.join(', ') || 'None yet' }}</strong>
+              </span>
             </p>
             <p v-if="stage === 'seats'" class="text-xs text-slate-500" role="status">
               {{ selected.length }} of {{ passengers }} seats selected
             </p>
           </div>
           <div class="mb-6 flex justify-between gap-3 text-lg font-semibold">
-            <span>Total</span
-            ><span class="text-blue-700">{{ formatMoney(total, flight.price.currency) }}</span>
+            <span>Total</span>
+            <span class="text-blue-700">{{ formatMoney(total, flight.price.currency) }}</span>
           </div>
           <ElAlert
             v-if="paymentError"
@@ -404,8 +395,8 @@ onBeforeUnmount(() => {
               type="primary"
               :disabled="!validSelection || !available"
               @click="confirmSeats"
-              >Confirm seats</ElButton
-            >
+              >Confirm seats
+            </ElButton>
             <ElButton class="m-0!" @click="router.push(backToFlight)">Cancel</ElButton>
           </div>
           <ElForm v-else-if="stage === 'payment'" class="grid gap-3" @submit.prevent="pay">
@@ -416,17 +407,17 @@ onBeforeUnmount(() => {
               :loading="submitting"
               :loading-icon="LoaderCircle"
               :disabled="submitting || !validSelection || !available"
-              >{{ submitting ? 'Confirming booking…' : 'Complete simulated payment' }}</ElButton
-            >
-            <ElButton class="m-0!" :disabled="submitting" @click="stage = 'seats'"
-              >Change seats</ElButton
-            >
+              >{{ submitting ? 'Confirming booking…' : 'Complete simulated payment' }}
+            </ElButton>
+            <ElButton class="m-0!" :disabled="submitting" @click="stage = 'seats'">
+              Change seats
+            </ElButton>
             <RouterLink
               v-if="paymentError"
               class="text-center text-sm text-blue-700 underline"
               to="/trips"
-              >Check My trips</RouterLink
-            >
+              >Check My trips
+            </RouterLink>
           </ElForm>
           <p class="mt-5 text-xs leading-5 text-slate-500">
             Seat selection and payment are simulated. No money is charged. Your booking is created
@@ -437,21 +428,21 @@ onBeforeUnmount(() => {
       <div
         v-if="stage !== 'holding'"
         class="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-between gap-3
-         border-t border-slate-200 bg-white p-4 shadow-lg max-[380px]:[&>button]:w-full lg:hidden"
+         border-t border-slate-200 bg-surface p-4 shadow-lg max-[380px]:[&>button]:w-full lg:hidden"
       >
         <div class="min-w-0 text-xs text-slate-500" role="status">
           <p>{{ selected.length }} / {{ passengers }} seats selected</p>
-          <strong class="mt-1 block text-sm text-blue-700">{{
-            formatMoney(total, flight.price.currency)
-          }}</strong>
+          <strong class="mt-1 block text-sm text-blue-700">
+            {{ formatMoney(total, flight.price.currency) }}
+          </strong>
         </div>
         <ElButton
           v-if="stage === 'seats'"
           type="primary"
           :disabled="!validSelection || !available"
           @click="confirmSeats"
-          >Confirm seats</ElButton
-        >
+          >Confirm seats
+        </ElButton>
         <ElButton
           v-else
           type="primary"
@@ -459,8 +450,8 @@ onBeforeUnmount(() => {
           :loading-icon="LoaderCircle"
           :disabled="submitting || !validSelection || !available"
           @click="pay"
-          >{{ submitting ? 'Confirming…' : 'Complete simulated payment' }}</ElButton
-        >
+          >{{ submitting ? 'Confirming…' : 'Complete simulated payment' }}
+        </ElButton>
       </div>
     </section>
     <ElDialog

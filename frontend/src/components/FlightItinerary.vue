@@ -7,7 +7,8 @@ defineProps<{ flight: Flight }>()
 
 <template>
   <div
-    class="grid items-center gap-6 rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-6 text-center sm:grid-cols-[1fr_auto_1fr]"
+    class="grid items-center gap-6 rounded-xl border border-slate-200 bg-surface shadow-sm
+     shadow-slate-900/5 p-6 text-center sm:grid-cols-[1fr_auto_1fr]"
   >
     <div class="space-y-2">
       <p class="text-3xl font-semibold tabular-nums">

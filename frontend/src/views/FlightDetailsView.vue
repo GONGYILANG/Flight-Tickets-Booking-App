@@ -67,10 +67,6 @@ watch(
 
 async function confirmBooking() {
   if (!flight.value || booking.value) return
-  if (!isBookable(flight.value, passengers.value)) {
-    bookingError.value = 'This flight is no longer available for the selected travelers.'
-    return
-  }
   booking.value = true
   bookingError.value = ''
   try {
@@ -107,18 +103,15 @@ async function confirmBooking() {
           </h1>
           <ElTag
             :type="
-              flight.status === 'DELAYED'
-                ? 'warning'
-                : flight.status === 'CANCELLED'
-                  ? 'danger'
-                  : 'success'
+              flight.status === 'DELAYED' ? 'warning'
+               : flight.status === 'CANCELLED' ? 'danger' : 'success'
             "
             >{{ flight.status.charAt(0) + flight.status.slice(1).toLowerCase() }}
           </ElTag>
         </div>
         <FlightItinerary :flight="flight" />
         <section
-          class="rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 sm:p-6"
+          class="rounded-xl border border-slate-200 bg-surface shadow-sm shadow-slate-900/5 p-5 sm:p-6"
         >
           <h2 class="mb-5 text-lg font-semibold">Flight details</h2>
           <ElDescriptions :column="1" border label-width="160">
@@ -146,7 +139,8 @@ async function confirmBooking() {
         </section>
       </div>
       <aside
-        class="self-start rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 p-5 sm:p-6"
+        class="self-start rounded-xl border border-slate-200 bg-surface shadow-sm
+         shadow-slate-900/5 p-5 sm:p-6"
       >
         <h2 class="mb-6 text-xl font-semibold">Review booking</h2>
         <ElForm label-position="top" @submit.prevent="confirmBooking">
@@ -161,8 +155,7 @@ async function confirmBooking() {
             </ElSelect>
           </ElFormItem>
           <div class="flex flex-wrap justify-between gap-3 border-y border-slate-200 py-5 text-sm">
-            <span
-              >{{ passengers }} travelers ×
+            <span>{{ passengers }} travelers ×
               {{ formatMoney(flight.price.amount, flight.price.currency) }}
             </span>
             <span>{{ formatMoney(totalAmount, flight.price.currency) }}</span>

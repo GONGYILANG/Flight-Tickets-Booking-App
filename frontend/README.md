@@ -4,10 +4,10 @@ Vue 3 desktop-first frontend for the simulated flight booking backend and AI mid
 
 ## UI stack
 
-- Tailwind CSS 4 utilities provide all application layout, spacing, typography, and theme overrides. `src/main.ts` imports `tailwindcss/index.css` for the framework and `src/style.css` for the theme. `style.css` is the only permitted stylesheet: it carries `@import "tailwindcss"` and the `@custom-variant dark` rule that keeps the theme switchable, and neither can live in a Vue `<style>` block. Every other file uses utility classes only — no component stylesheets, no Vue style blocks, no inline styles.
+- Tailwind CSS 4 utilities provide application layout, spacing, and typography. `src/style.css` is the Tailwind entry point and defines the switchable dark palette, surface token, fonts, and shared motion. Additional shared CSS files are allowed when needed; components keep utility classes rather than Vue style blocks or inline styles.
 - Element Plus provides forms, inputs, date pickers, selects, tables, pagination, drawers, dialogs, and descriptions. Its published component stylesheet is imported in `main.ts`.
 - `lucide-vue-next` provides icons. Use its components instead of handwritten SVG or CSS-drawn icons.
-- Use `ElForm` and `ElTable` for new forms and tables. `npm test` checks that source files do not introduce raw forms/tables, inline styles, or custom stylesheets.
+- Use `ElForm` and `ElTable` for new forms and tables. `npm test` checks that Vue source files do not introduce raw forms/tables, handwritten SVG, inline styles, or component style blocks; it does not impose a stylesheet count.
 
 ## Local development
 
@@ -45,6 +45,8 @@ Production hosting must preserve the same `/api` and `/chat-api` reverse-proxy p
 ## Reference design and scope
 
 The design uses navy navigation, blue actions, white surfaces on a pale slate canvas, compact typography, and restrained borders and shadows.
+
+Inter is used for body text and Manrope for headings, with system-font fallbacks. Short entrance and route fades respect reduced-motion preferences. Card backgrounds use `bg-surface`, which changes with the theme; `white` retains its literal meaning for readable text and translucent highlights on dark navigation and hero backgrounds. Mobile navigation occupies its own row.
 
 The flight-search page and shared login/register panel use aviation photographs from [`public/images`]. The images are decorative JPEG assets; form controls and copy are rendered in Vue. Mobile layouts retain the photography while stacking the search and authentication forms. The dark theme uses a navy/slate palette and the same blue action color.
 

@@ -100,7 +100,9 @@ function go(page: number) {
         :data="bookings"
         row-key="id"
         size="default"
-        class="w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm shadow-slate-900/5 [&_th]:bg-slate-50! [&_th]:py-3! [&_th]:font-medium! [&_th]:text-slate-500! [&_td]:py-3!"
+        class="w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm
+         shadow-slate-900/5 [&_th]:bg-slate-50! [&_th]:py-3! [&_th]:font-medium!
+         [&_th]:text-slate-500! [&_td]:py-3!"
         aria-label="My trips"
       >
         <ElTableColumn prop="bookingReference" label="Booking" min-width="190">
@@ -112,15 +114,14 @@ function go(page: number) {
         <ElTableColumn label="Date & route" min-width="250">
           <template #default="{ row }">
             <div class="py-3">
-              <strong>{{
-                formatFlightDate(row.flight.departureAt, row.flight.originAirport.timezone)
-              }}</strong>
+              <strong>
+                {{ formatFlightDate(row.flight.departureAt, row.flight.originAirport.timezone)}}
+              </strong>
               <p class="mt-2 flex items-center gap-1 text-xs text-slate-500">
                 {{ formatTime(row.flight.departureAt, row.flight.originAirport.timezone) }}
                 {{ row.flight.originAirport.iataCode }}
-                <ArrowRight :size="14" aria-hidden="true" />{{
-                  formatTime(row.flight.arrivalAt, row.flight.destinationAirport.timezone)
-                }}
+                <ArrowRight :size="14" aria-hidden="true" />
+                {{ formatTime(row.flight.arrivalAt, row.flight.destinationAirport.timezone) }}
                 {{ row.flight.destinationAirport.iataCode }}
               </p>
             </div>

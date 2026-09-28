@@ -23,10 +23,8 @@ function passengersFor(turnIndex: number) {
     const event = turns[index]?.view.events.find(
       (item) => item.tool === 'search_flights' && item.result.ok,
     )
-    const count = Number(
-      (event?.result.data?.search as { passengers?: number } | undefined)?.passengers,
-    )
-    if (count >= 1 && count <= 9) return count
+    const count = (event?.result.data?.search as { passengers: number } | undefined)?.passengers
+    if (count !== undefined) return count
   }
   return 1
 }
@@ -72,8 +70,11 @@ watch(
 
 <template>
   <AppShell flush>
-    <section class="grid h-[calc(100dvh-4rem)] min-h-0 grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)]">
-      <aside class="hidden overflow-y-auto border-r border-slate-200 bg-white p-5 md:block">
+    <section
+      class="grid h-[calc(100dvh-6.25rem)] min-h-0 grid-cols-1 sm:h-[calc(100dvh-4rem)]
+       md:grid-cols-[280px_minmax(0,1fr)]"
+    >
+      <aside class="hidden overflow-y-auto border-r border-slate-200 bg-surface p-5 md:block">
         <ConversationList />
       </aside>
       <ElDrawer
@@ -87,7 +88,8 @@ watch(
       </ElDrawer>
       <div class="grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto]">
         <header
-          class="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-5 lg:px-8"
+          class="flex items-center justify-between gap-3 border-b border-slate-200
+           px-4 py-5 lg:px-8"
         >
           <div class="min-w-0">
             <div class="flex items-center gap-3">
@@ -125,8 +127,8 @@ watch(
               :loading="chat.deleting"
               :disabled="!chat.current || chat.busy || chat.loadingHistory || chat.loadingSessions"
               @click="clearSession"
-              ><span class="hidden sm:inline">Delete conversation</span></ElButton
-            >
+              ><span class="hidden sm:inline">Delete conversation</span>
+            </ElButton>
           </div>
         </header>
         <div
@@ -176,7 +178,8 @@ watch(
               <div class="grid justify-items-end gap-1">
                 <span class="text-xs text-slate-500">You</span>
                 <div
-                  class="max-w-full rounded-xl bg-blue-700 px-4 py-3 text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-white shadow-sm sm:max-w-[85%]"
+                  class="max-w-full rounded-xl bg-[#1d4ed8] px-4 py-3 text-sm leading-6
+                   wrap-anywhere whitespace-pre-wrap text-white shadow-sm sm:max-w-[85%]"
                 >
                   {{ turn.view.userMessage }}
                 </div>
@@ -188,7 +191,9 @@ watch(
                 <span class="text-xs text-slate-500">Assistant</span>
                 <div
                   v-if="turn.view.assistantMessage"
-                  class="max-w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-slate-800 shadow-sm shadow-slate-900/5 sm:max-w-[85%]"
+                  class="max-w-full rounded-xl border border-slate-200 bg-surface px-4 py-3
+                   text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-slate-800 shadow-sm
+                   shadow-slate-900/5 sm:max-w-[85%]"
                 >
                   {{ turn.view.assistantMessage }}
                 </div>
@@ -220,7 +225,8 @@ watch(
                   :title="turn.status === 'failed' ? 'Reply failed' : 'Reply not confirmed'"
                   :description="
                     turn.error ??
-                    'This turn is unfinished. Refresh to check for a saved reply. Check your trips before repeating a booking.'
+                    ('This turn is unfinished. Refresh to check for a saved reply. '
+                     + 'Check your trips before repeating a booking.')
                   "
                   :type="turn.status === 'failed' ? 'error' : 'warning'"
                   :closable="false"
@@ -232,8 +238,8 @@ watch(
                   text
                   type="primary"
                   @click="chat.retry(turn.turnId)"
-                  >Retry message</ElButton
-                >
+                  >Retry message
+                </ElButton>
               </template>
             </article>
           </template>

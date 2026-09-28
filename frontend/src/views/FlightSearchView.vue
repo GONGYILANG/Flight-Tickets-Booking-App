@@ -14,8 +14,10 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronRight,
+  History,
   MessageCircle,
   Search,
+  Sparkles,
 } from 'lucide-vue-next'
 import { h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -124,34 +126,50 @@ function openResults(value?: RecentSearch) {
 <template>
   <AppShell flush>
     <section>
-      <div class="relative isolate h-[350px] overflow-hidden bg-[#eaf3fa] sm:h-[400px]">
+      <div class="relative isolate overflow-hidden bg-brand-gradient">
         <img
           src="/images/aircraft-hero.jpg"
           alt=""
           width="2172"
           height="724"
           fetchpriority="high"
-          class="absolute inset-x-0 bottom-0 h-[210px] w-full object-cover object-right [mask-image:linear-gradient(to_bottom,transparent,black_24%)] sm:inset-0 sm:h-full sm:object-center sm:[mask-image:none]"
+          class="absolute inset-0 h-full w-full object-cover object-center opacity-25
+           mix-blend-luminosity [mask-image:linear-gradient(to_bottom,black_30%,transparent)]"
         />
         <div
-          class="relative mx-auto flex h-full max-w-7xl items-start px-5 pt-8 sm:items-center sm:px-8 sm:pt-0 sm:pb-10"
-        >
-          <div class="max-w-xl">
+          class="absolute -top-24 right-0 size-96 rounded-full bg-sky-300/25 blur-3xl"
+          aria-hidden="true"
+        ></div>
+        <div
+          class="absolute bottom-0 left-1/4 size-72 rounded-full bg-indigo-400/20 blur-3xl"
+          aria-hidden="true"
+        ></div>
+        <div class="relative mx-auto max-w-7xl px-5 pt-8 pb-20 sm:px-8 sm:pt-16 sm:pb-28">
+          <div class="max-w-2xl animate-fade-up">
+            <span
+              class="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-1.5
+               text-xs font-semibold tracking-wider text-sky-100 uppercase backdrop-blur-sm"
+            >
+              <Sparkles :size="14" aria-hidden="true" />AI-powered flight booking
+            </span>
             <h1
-              class="text-[28px] leading-tight font-semibold tracking-tight text-[#10233f] sm:text-4xl"
+              class="mt-5 font-display text-[32px] font-extrabold leading-tight tracking-tight
+               text-white sm:text-[44px]"
             >
               Where would you like to go?
             </h1>
-            <p class="mt-4 max-w-sm text-sm leading-6 text-[#334b68] sm:text-base">
-              Find your next flight. Keep every trip in one place.
+            <p class="mt-4 max-w-md text-sm leading-6 text-blue-100 sm:text-base">
+              Search real-time flights, book in seconds, and keep every trip in one place.
             </p>
           </div>
         </div>
       </div>
-      <div class="relative z-10 mx-auto -mt-10 max-w-7xl px-4 pb-12 sm:px-8 sm:pb-20">
+      <div class="relative z-10 mx-auto -mt-14 max-w-7xl px-4 pb-12 sm:px-8 sm:pb-20">
         <ElForm
           label-position="top"
-          class="grid items-end gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-[0_12px_40px_-16px_rgba(15,23,42,0.2)] sm:grid-cols-2 sm:p-6 xl:grid-cols-[1.2fr_auto_1.2fr_1fr_.85fr_auto]"
+          class="grid animate-fade-up [animation-delay:120ms] items-end gap-4 rounded-2xl
+           border border-slate-200 bg-surface p-5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]
+           ring-1 ring-slate-900/5 sm:grid-cols-2 sm:p-7 xl:grid-cols-[1.2fr_auto_1.2fr_1fr_.85fr_auto]"
           @submit.prevent="openResults()"
         >
           <ElFormItem label="From" class="mb-0! min-w-0">
@@ -200,20 +218,43 @@ function openResults(value?: RecentSearch) {
           class="mt-4"
           role="alert"
         />
-        <div class="my-8 text-center">
-          <RouterLink
-            class="inline-flex items-center gap-2 font-medium text-blue-700 hover:underline"
-            to="/ai"
-          >
-            <MessageCircle :size="18" aria-hidden="true" />
-            Or ask the AI Assistant
-          </RouterLink>
-        </div>
-        <section v-if="recent" class="mt-10">
-          <h2 class="mb-4 text-lg font-semibold">Recent search</h2>
+        <RouterLink
+          to="/ai"
+          class="group mt-8 flex animate-fade-up [animation-delay:180ms] items-center
+           justify-between gap-4 rounded-2xl border border-blue-700/15 bg-blue-700/5
+           px-6 py-5 transition-all hover:border-blue-700/30 hover:bg-blue-700/10"
+        >
+          <span class="flex items-center gap-4">
+            <span
+              class="flex size-11 shrink-0 items-center justify-center rounded-xl
+               bg-brand-gradient text-white shadow-md shadow-blue-900/20"
+            >
+              <MessageCircle :size="20" aria-hidden="true" />
+            </span>
+            <span>
+              <strong class="block font-display text-sm font-bold text-slate-900">
+                Not sure where to start?
+              </strong>
+              <span class="text-sm text-slate-500">
+                Ask the AI Assistant to plan and book your trip.
+              </span>
+            </span>
+          </span>
+          <ArrowRight
+            :size="18"
+            class="shrink-0 text-blue-700 transition-transform group-hover:translate-x-1"
+            aria-hidden="true"
+          />
+        </RouterLink>
+        <section v-if="recent" class="mt-8 animate-fade-up [animation-delay:240ms]">
+          <h2 class="mb-4 flex items-center gap-2 font-display text-lg font-bold">
+            <History :size="18" class="text-slate-400" aria-hidden="true" />Recent search
+          </h2>
           <ElButton
             text
-            class="h-auto! w-full justify-between! rounded-xl! border! border-slate-200! bg-white! px-5! py-5! shadow-sm transition-shadow hover:shadow-md [&>span]:w-full [&>span]:justify-between"
+            class="h-auto! w-full justify-between! rounded-2xl! border! border-slate-200!
+             bg-surface! px-6! py-5! shadow-sm transition-shadow hover:shadow-md
+             [&>span]:w-full [&>span]:justify-between"
             @click="openResults(recent)"
           >
             <span class="flex flex-wrap items-center gap-2 text-sm">

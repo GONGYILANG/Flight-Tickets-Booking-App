@@ -4,6 +4,7 @@ import { Eye, EyeOff, LoaderCircle, Plane } from 'lucide-vue-next'
 import { ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { ApiError } from '../api'
 
 const auth = useAuthStore()
 const props = defineProps<{ register?: boolean }>()
@@ -28,18 +29,6 @@ watch(
 async function submit() {
   if (loading.value) return
   error.value = ''
-  if (
-    props.register &&
-    (displayName.value.trim().length < 2 || displayName.value.trim().length > 120)
-  ) {
-    error.value = 'Display name must be between 2 and 120 characters.'
-    return
-  }
-  const passwordBytes = new TextEncoder().encode(password.value).length
-  if (passwordBytes < 8 || passwordBytes > 72) {
-    error.value = 'Password must be between 8 and 72 bytes.'
-    return
-  }
   loading.value = true
   try {
     if (props.register)
@@ -48,7 +37,10 @@ async function submit() {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/flights'
     await router.replace(redirect)
   } catch (reason) {
-    error.value = (reason as Error).message
+    error.value =
+      reason instanceof ApiError
+        ? (reason.fields[0]?.message ?? reason.message)
+        : (reason as Error).message
   } finally {
     loading.value = false
   }
@@ -60,10 +52,12 @@ async function submit() {
     class="flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-6 sm:gap-8 sm:px-8 sm:py-10"
   >
     <div
-      class="grid w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_-24px_rgba(15,23,42,0.22)] md:min-h-[680px] md:grid-cols-2"
+      class="grid w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-surface
+       shadow-[0_20px_60px_-24px_rgba(15,23,42,0.22)] md:min-h-[680px] md:grid-cols-2"
     >
       <aside
-        class="relative isolate flex min-h-[180px] flex-col justify-end overflow-hidden p-6 text-[#fff] sm:p-8 md:min-h-full md:justify-between md:p-10"
+        class="relative isolate flex min-h-[180px] flex-col justify-end overflow-hidden p-6
+         text-[#fff] sm:p-8 md:min-h-full md:justify-between md:p-10"
         aria-label="Flight booking"
       >
         <img
@@ -80,7 +74,8 @@ async function submit() {
         ></div>
         <RouterLink
           to="/flights"
-          class="inline-flex w-fit items-center gap-3 text-lg font-semibold text-[#fff] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+          class="inline-flex w-fit items-center gap-3 text-lg font-semibold text-[#fff]
+           focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
         >
           <Plane :size="26" aria-hidden="true" />Flight booking
         </RouterLink>
@@ -94,7 +89,8 @@ async function submit() {
         </div>
       </aside>
       <section
-        class="mx-auto w-full max-w-md self-center px-6 py-9 sm:px-10 sm:py-12 md:max-w-none md:px-12 lg:px-16"
+        class="mx-auto w-full max-w-md self-center px-6 py-9 sm:px-10 sm:py-12
+         md:max-w-none md:px-12 lg:px-16"
       >
         <h1 class="text-[28px] font-semibold tracking-tight text-slate-900">
           {{ register ? 'Create an account' : 'Welcome back' }}
@@ -162,8 +158,8 @@ async function submit() {
             :loading="loading"
             :loading-icon="LoaderCircle"
             :disabled="loading"
-            >{{ loading ? 'Please wait…' : register ? 'Create account' : 'Sign in' }}</ElButton
-          >
+            >{{ loading ? 'Please wait…' : register ? 'Create account' : 'Sign in' }}
+          </ElButton>
         </ElForm>
         <p class="mt-6 text-center text-sm text-slate-500">
           {{ register ? 'Already registered?' : 'New here?' }}

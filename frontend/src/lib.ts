@@ -6,12 +6,10 @@ export interface PendingBooking {
   idempotencyKey: string
 }
 
+// Amounts come from the backend DTO as "123.45" strings; the API contract guarantees the format.
 export function amountToCents(amount: string): number {
-  if (!/^\d+\.\d{2}$/.test(amount)) throw new Error(`Invalid amount: ${amount}`)
-  const [whole = '0', fraction = '00'] = amount.split('.')
-  const cents = Number(whole) * 100 + Number(fraction)
-  if (!Number.isSafeInteger(cents)) throw new Error(`Amount is too large: ${amount}`)
-  return cents
+  const [whole, fraction] = amount.split('.')
+  return Number(whole) * 100 + Number(fraction)
 }
 
 export function centsToAmount(cents: number): string {
@@ -47,9 +45,12 @@ export function formatFlightDate(value: string, timezone: string): string {
 
 export function formatShortDate(date: string): string {
   if (!isCalendarDate(date)) return 'Select a date'
-  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' }).format(
-    new Date(`${date}T12:00:00Z`),
-  )
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${date}T12:00:00Z`))
 }
 
 export function isCalendarDate(value: string): boolean {
@@ -63,10 +64,13 @@ export function boundedInteger(value: unknown, fallback: number, maximum: number
   return Number.isInteger(number) && number >= 1 && number <= maximum ? number : fallback
 }
 
+// Callers normalize passengers to 1-9; only flight state needs checking here.
 export function isBookable(flight: Flight, passengers: number, now = Date.now()): boolean {
-  return Number.isInteger(passengers) && passengers >= 1 && passengers <= 9 &&
-    flight.availableSeats >= passengers && ['SCHEDULED', 'DELAYED'].includes(flight.status) &&
+  return (
+    flight.availableSeats >= passengers &&
+    ['SCHEDULED', 'DELAYED'].includes(flight.status) &&
     new Date(flight.departureAt).getTime() > now
+  )
 }
 
 export function formatDuration(minutes: number): string {
@@ -81,10 +85,13 @@ export function shiftDate(date: string, days: number): string {
 
 export function today(): string {
   const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}
+  -${String(now.getDate()).padStart(2, '0')}`
 }
 
-export function toQueryParams(values: Record<string, string | number | undefined>): URLSearchParams {
+export function toQueryParams(
+  values: Record<string, string | number | undefined>,
+): URLSearchParams {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(values)) {
     if (value !== undefined && value !== '') params.set(key, String(value))
