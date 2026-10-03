@@ -28,11 +28,11 @@ function parseAirportCode(value, field, fields) {
   return code;
 }
 
-function parseDepartureDate(value, fields) {
+function parseDepartureDate(value, field, fields) {
   if (typeof value !== "string" || !datePattern.test(value)) {
     fields.push({
-      field: "departureDate",
-      message: "departureDate is required in YYYY-MM-DD format",
+      field,
+      message: `${field} is required in YYYY-MM-DD format`,
     });
     return undefined;
   }
@@ -43,8 +43,8 @@ function parseDepartureDate(value, fields) {
     start.toISOString().slice(0, 10) !== value
   ) {
     fields.push({
-      field: "departureDate",
-      message: "departureDate must be a valid calendar date",
+      field,
+      message: `${field} must be a valid calendar date`,
     });
     return undefined;
   }
@@ -129,10 +129,30 @@ export function validateFlightSearch(request, _response, next) {
     "destination",
     fields,
   );
-  const departureDate = parseDepartureDate(
-    request.query.departureDate,
-    fields,
-  );
+  let departureDate;
+  let departureDateFrom;
+  let departureDateTo;
+  if (request.query.departureDateFrom !== undefined || request.query.departureDateTo !== undefined) {
+    departureDateFrom = parseDepartureDate(request.query.departureDateFrom, "departureDateFrom", fields);
+    departureDateTo = parseDepartureDate(request.query.departureDateTo, "departureDateTo", fields);
+    if (request.query.departureDate !== undefined) {
+      fields.push({
+        field: "departureDate",
+        message: "Use departureDate or departureDateFrom/departureDateTo, not both",
+      });
+    }
+    if (departureDateFrom && departureDateTo) {
+      const days = (Date.parse(departureDateTo) - Date.parse(departureDateFrom)) / 86400000 + 1;
+      if (days < 1 || days > 31) {
+        fields.push({
+          field: "departureDateTo",
+          message: "The departure date range must contain 1 to 31 calendar days",
+        });
+      }
+    }
+  } else {
+    departureDate = parseDepartureDate(request.query.departureDate, "departureDate", fields);
+  }
   const departurePeriod = parseDeparturePeriod(
     request.query.departurePeriod,
     fields,
@@ -187,6 +207,8 @@ export function validateFlightSearch(request, _response, next) {
     origin,
     destination,
     departureDate,
+    departureDateFrom,
+    departureDateTo,
     departurePeriod,
     airlineCode,
     passengers,

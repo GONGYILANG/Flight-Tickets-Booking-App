@@ -438,14 +438,16 @@ The list is a directory of enabled airlines and does not guarantee that an airli
 
 ### `GET /api/flights/search`
 
-Searches bookable direct flights by exact departure airport, destination airport, and local departure date. Results contain only future `SCHEDULED` or `DELAYED` flights with at least the requested number of seats.
+Searches bookable direct flights by exact departure airport, destination airport, and a local departure date or date range. Results contain only future `SCHEDULED` or `DELAYED` flights with at least the requested number of seats.
 
 | Parameter | Required | Default | Rules |
 | --- | --- | --- | --- |
 | `origin` | Yes | — | Three-letter IATA code, uppercased. |
 | `destination` | Yes | — | Three-letter IATA code, different from `origin`. |
-| `departureDate` | Yes | — | Valid `YYYY-MM-DD` date in the origin airport's time zone. |
-| `departurePeriod` | No | `null` | `MORNING` or `AFTERNOON`. |
+| `departureDate` | One date or a range | — | Valid `YYYY-MM-DD` date in the origin airport's time zone. Cannot be combined with the range parameters. |
+| `departureDateFrom` | With `departureDateTo` | — | Inclusive first local departure date in `YYYY-MM-DD` format. |
+| `departureDateTo` | With `departureDateFrom` | — | Inclusive last local departure date, on or after the first date; at most 31 calendar days including both endpoints. |
+| `departurePeriod` | No | `null` | `MORNING` (before local noon) or `AFTERNOON` (noon onward), applied to every day in a range. |
 | `airlineCode` | No | `null` | Enabled two- or three-character airline code. |
 | `passengers` | No | `1` | Integer from 1 to 9. |
 | `page` | No | `1` | Integer from 1 to 10000. |
@@ -456,6 +458,14 @@ Searches bookable direct flights by exact departure airport, destination airport
 ```http
 GET /api/flights/search?origin=PEK&destination=HKG&departureDate=2026-12-08&departurePeriod=MORNING&airlineCode=CX&passengers=2&sortBy=price&sortOrder=asc&page=1&limit=20
 ```
+
+For the cheapest flights across an entire month:
+
+```http
+GET /api/flights/search?origin=PEK&destination=HKG&departureDateFrom=2026-12-01&departureDateTo=2026-12-31&passengers=1&sortBy=price&sortOrder=asc&page=1&limit=5
+```
+
+Range boundaries use the origin airport's time zone, including daylight-saving changes. Sorting, pagination, and totals cover the entire matching range. The response's `search` object contains `departureDateFrom` and `departureDateTo` instead of `departureDate` for range queries; single-date responses retain their existing shape.
 
 Successful response (`200`):
 
@@ -553,7 +563,7 @@ On a timeout or `500 BOOKING_CREATION_FAILED`, the commit outcome may be unknown
 
 A flight must exist, be in the future, have status `SCHEDULED` or `DELAYED`, and have `availableSeats >= seatCount`.
 
-Common errors include `400 INVALID_REQUEST`, authentication errors, `409 FLIGHT_NOT_FOUND_OR_SOLD_OUT`, `409 IDEMPOTENCY_KEY_CONFLICT`, `503 BOOKING_WRITES_PAUSED`, and consistency-related `500` errors.
+Common errors include `400 INVALID_REQUEST`, authentication errors, `409 FLIGHT_NOT_FOUND_OR_SOLD_OUT`, `409 IDEMPOTENCY_KEY_CONFLICT`, `409 BOOKING_CUTOFF_PASSED`, `503 BOOKING_WRITES_PAUSED`, and consistency-related `500` errors.
 
 ### `GET /api/bookings/me`
 

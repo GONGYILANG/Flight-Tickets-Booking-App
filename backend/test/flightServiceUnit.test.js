@@ -50,3 +50,19 @@ test("departure windows preserve daylight-saving day lengths", () => {
   assert.equal(spring.end.getTime() - spring.start.getTime(), 23 * 60 * 60 * 1000);
   assert.equal(fall.end.getTime() - fall.start.getTime(), 25 * 60 * 60 * 1000);
 });
+
+test("date ranges include the last local day and preserve DST boundaries", () => {
+  for (const [from, to, timezone, start, end] of [
+    ["2026-12-01", "2026-12-31", "Asia/Shanghai", "2026-11-30T16:00:00.000Z", "2026-12-31T16:00:00.000Z"],
+    ["2026-03-07", "2026-03-09", "America/New_York", "2026-03-07T05:00:00.000Z", "2026-03-10T04:00:00.000Z"],
+    ["2026-10-31", "2026-11-02", "America/New_York", "2026-10-31T04:00:00.000Z", "2026-11-03T05:00:00.000Z"],
+  ]) {
+    const window = getDepartureWindow(
+      { departureDateFrom: from, departureDateTo: to },
+      timezone,
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
+    assert.equal(window.start.toISOString(), start);
+    assert.equal(window.end.toISOString(), end);
+  }
+});

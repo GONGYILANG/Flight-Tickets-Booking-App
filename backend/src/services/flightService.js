@@ -99,6 +99,8 @@ function toSearchMetadata(criteria, departureTimezone) {
     origin: criteria.origin,
     destination: criteria.destination,
     departureDate: criteria.departureDate,
+    departureDateFrom: criteria.departureDateFrom,
+    departureDateTo: criteria.departureDateTo,
     departurePeriod: criteria.departurePeriod,
     departureTimezone,
     airlineCode: criteria.airlineCode,
@@ -121,11 +123,14 @@ export function getDepartureWindow(
     );
   }
 
-  const localDayStart = DateTime.fromISO(criteria.departureDate, {
+  const localDayStart = DateTime.fromISO(criteria.departureDate ?? criteria.departureDateFrom, {
+    zone: timezone,
+  }).startOf("day");
+  const localLastDayStart = DateTime.fromISO(criteria.departureDate ?? criteria.departureDateTo, {
     zone: timezone,
   }).startOf("day");
 
-  if (!localDayStart.isValid) {
+  if (!localDayStart.isValid || !localLastDayStart.isValid) {
     throw serviceError(
       "INVALID_AIRPORT_TIMEZONE",
       `Origin airport has an invalid timezone: ${timezone}`,
@@ -144,13 +149,13 @@ export function getDepartureWindow(
 
   const now = DateTime.fromJSDate(currentInstant, { zone: timezone });
   const localNoon = localDayStart.set({ hour: 12 });
-  const localNextDayStart = localDayStart.plus({ days: 1 });
+  const localNextDayStart = localLastDayStart.plus({ days: 1 });
 
   let requestedStart = localDayStart;
   let requestedEnd = localNextDayStart;
 
   if (criteria.departurePeriod === "MORNING") {
-    requestedEnd = localNoon;
+    requestedEnd = localLastDayStart.set({ hour: 12 });
   } else if (criteria.departurePeriod === "AFTERNOON") {
     requestedStart = localNoon;
   }
@@ -229,7 +234,6 @@ export async function searchFlights(criteria) {
     destinationAirport: destinationAirport._id,
     departureAt: {
       $gte: departureWindow.start,
-      $gt: currentTime,
       $lt: departureWindow.end,
     },
     availableSeats: { $gte: criteria.passengers },
@@ -237,6 +241,15 @@ export async function searchFlights(criteria) {
   };
   if (airline) {
     filter.airline = airline._id;
+  }
+  if (criteria.departureDateFrom && criteria.departurePeriod) {
+    // The range bounds alone cannot exclude the other half of each intervening day.
+    filter.$expr = {
+      [criteria.departurePeriod === "MORNING" ? "$lt" : "$gte"]: [
+        { $hour: { date: "$departureAt", timezone: originAirport.timezone } },
+        12,
+      ],
+    };
   }
 
   const direction = criteria.sortOrder === "asc" ? 1 : -1;

@@ -11,6 +11,24 @@ import {
   toFlightResponse,
 } from "./flightService.js";
 
+// Flights departing within this window can no longer be booked online.
+const BOOKING_CUTOFF_HOURS = 1;
+const BOOKING_CUTOFF_MS = BOOKING_CUTOFF_HOURS * 60 * 60 * 1000;
+
+function bookingCutoffDeadline(now = new Date()) {
+  return new Date(now.getTime() + BOOKING_CUTOFF_MS);
+}
+
+// True when a bookable flight exists but departs inside the booking cutoff.
+function isWithinBookingCutoff(flight, cutoff) {
+  if (!flight || !bookableFlightStatuses.includes(flight.status)) {
+    return false;
+  }
+  const departureAt = new Date(flight.departureAt);
+  const now = new Date(cutoff.getTime() - BOOKING_CUTOFF_MS);
+  return departureAt > now && departureAt <= cutoff;
+}
+
 function assertBookingWritesEnabled() {
   if (process.env.BOOKING_WRITES_PAUSED === "true") {
     throw serviceError(
@@ -171,12 +189,13 @@ export async function createBooking(input) {
         throw serviceError("USER_NOT_FOUND", "Active user was not found", 404);
       }
 
-      // Recheck departure on every retry; the guarded decrement prevents overselling.
+      // Recheck the cutoff and departure on every retry; the guarded decrement prevents overselling.
+      const cutoff = bookingCutoffDeadline();
       const flight = await Flight.findOneAndUpdate(
         {
           _id: input.flightId,
           status: { $in: bookableFlightStatuses },
-          departureAt: { $gt: new Date() },
+          departureAt: { $gt: cutoff },
           availableSeats: { $gte: input.seatCount },
         },
         { $inc: { availableSeats: -input.seatCount } },
@@ -184,6 +203,19 @@ export async function createBooking(input) {
       );
 
       if (!flight) {
+        // The guarded update fails for several reasons; inspect the flight so a
+        // passed booking cutoff is not reported as a generic sold-out error.
+        const candidate = await Flight.findById(input.flightId)
+          .select("status departureAt")
+          .session(session)
+          .lean();
+        if (isWithinBookingCutoff(candidate, cutoff)) {
+          throw serviceError(
+            "BOOKING_CUTOFF_PASSED",
+            `Online booking closes ${BOOKING_CUTOFF_HOURS} hour before departure`,
+            409,
+          );
+        }
         throw serviceError(
           "FLIGHT_NOT_FOUND_OR_SOLD_OUT",
           "Flight does not exist, has departed, is unavailable, or has insufficient seats",

@@ -124,6 +124,79 @@ test("flight search validates required and malformed parameters", async () => {
   ]) {
     assert.ok(invalidFields.includes(field));
   }
+
+  for (const dates of [
+    { departureDateFrom: "2026-12-01" },
+    { departureDateTo: "2026-12-31" },
+    { departureDateFrom: "2026-12-01", departureDateTo: "2026-12-31", departureDate: "2026-12-08" },
+    { departureDateFrom: "2026-12", departureDateTo: "2026-12-31" },
+    { departureDateFrom: "2026-02-29", departureDateTo: "2026-03-01" },
+    { departureDateFrom: "2026-12-01", departureDateTo: "2026-12-32" },
+    { departureDateFrom: "2026-12-02", departureDateTo: "2026-12-01" },
+    { departureDateFrom: "2026-12-01", departureDateTo: "2027-01-01" },
+    { departureDateFrom: ["2026-12-01", "2026-12-02"], departureDateTo: "2026-12-31" },
+  ]) {
+    const response = await request(app).get("/api/flights/search")
+      .query({ origin: "PEK", destination: "HKG", ...dates }).expect(400);
+    assert.equal(response.body.error.code, "INVALID_REQUEST");
+  }
+});
+
+test("range search filters every local day and paginates across the whole month", async () => {
+  const template = await Flight.findOne({ flightNumber: "CX101" }).lean();
+  const otherAirline = await Flight.findOne({ flightNumber: "CA115" }).lean();
+  const rows = [
+    ["2099-11-30T16:00:00.000Z", 40000], // First local midnight.
+    ["2099-12-15T03:59:59.999Z", 20000, { status: "DELAYED" }],
+    ["2099-12-15T04:00:00.000Z", 30000], // Local noon belongs to afternoon.
+    ["2099-12-31T15:59:59.999Z", 10000], // Last instant of the last local day.
+    ["2099-11-30T15:59:59.999Z", 100],
+    ["2099-12-31T16:00:00.000Z", 100],
+    ["2099-12-15T02:00:00.000Z", 100, { availableSeats: 1 }],
+    ["2099-12-15T02:00:00.000Z", 100, { status: "CANCELLED" }],
+    ["2099-12-15T02:00:00.000Z", 100, { airline: otherAirline.airline }],
+  ];
+  const created = await Flight.create(rows.map(([timestamp, priceCents, overrides]) => {
+    const departureAt = new Date(timestamp);
+    return validFlightData({
+      airline: template.airline,
+      originAirport: template.originAirport,
+      destinationAirport: template.destinationAirport,
+      departureAt,
+      arrivalAt: new Date(departureAt.getTime() + 3 * 60 * 60 * 1000),
+      priceCents,
+      ...overrides,
+    });
+  }));
+  const query = {
+    origin: "PEK", destination: "HKG", airlineCode: "CX", passengers: 2,
+    departureDateFrom: "2099-12-01", departureDateTo: "2099-12-31",
+    sortBy: "price", sortOrder: "asc",
+  };
+  try {
+    for (const [filters, indices, totalItems] of [
+      [{}, [3, 1, 2, 0], 4],
+      [{ departurePeriod: "MORNING" }, [1, 0], 2],
+      [{ departurePeriod: "AFTERNOON" }, [3, 2], 2],
+      [{ page: 1, limit: 2 }, [3, 1], 4],
+      [{ page: 2, limit: 2 }, [2, 0], 4],
+      [{ departureDateFrom: "2099-12-15", departureDateTo: "2099-12-15" }, [1, 2], 2],
+      [{ departureDateFrom: "2099-11-01", departureDateTo: "2099-11-10" }, [], 0],
+    ]) {
+      const response = await request(app).get("/api/flights/search")
+        .query({ ...query, ...filters }).expect(200);
+      const { flights, pagination, search } = response.body.data;
+      assert.deepEqual(flights.map(({ id }) => id), indices.map((i) => created[i].id));
+      assert.equal(pagination.totalItems, totalItems);
+      assert.equal(pagination.totalPages, Math.ceil(totalItems / (filters.limit ?? 20)));
+      assert.equal(search.departureDateFrom, filters.departureDateFrom ?? query.departureDateFrom);
+      assert.equal(search.departureDateTo, filters.departureDateTo ?? query.departureDateTo);
+      assert.equal(search.departureTimezone, "Asia/Shanghai");
+      assert.equal("departureDate" in search, false);
+    }
+  } finally {
+    await Flight.deleteMany({ _id: { $in: created.map(({ _id }) => _id) } });
+  }
 });
 
 test("flight search returns populated direct flights for the origin-local date", async () => {

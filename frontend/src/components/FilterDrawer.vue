@@ -40,29 +40,9 @@ function reset() {
     @update:model-value="emit('close')"
   >
     <ElForm :model="draft" label-position="top" @submit.prevent="emit('apply', { ...draft })">
-      <ElFormItem label="Airline">
-        <ElRadioGroup
-          v-model="draft.airlineCode"
-          class="flex! flex-col items-start! gap-1"
-          aria-label="Airline"
-        >
-          <ElRadio value="">Any airline</ElRadio>
-          <ElRadio v-for="airline in airlines" :key="airline.code" :value="airline.code">
-            {{ airline.name }} ({{ airline.code }})
-          </ElRadio>
-        </ElRadioGroup>
-      </ElFormItem>
-      <ElFormItem label="Departure time">
-        <ElRadioGroup
-          v-model="draft.departurePeriod"
-          aria-label="Departure time"
-          class="flex flex-wrap gap-1"
-        >
-          <ElRadio value="">Any time</ElRadio>
-          <ElRadio value="MORNING">Morning</ElRadio>
-          <ElRadio value="AFTERNOON">Afternoon</ElRadio>
-        </ElRadioGroup>
-      </ElFormItem>
+      <div class="flex justify-end">
+        <ElButton :icon="RotateCcw" text class="text-slate-500!" @click="reset">Reset</ElButton>
+      </div>
       <ElFormItem label="Origin airport">
         <ElRadioGroup
           v-model="draft.origin"
@@ -88,7 +68,29 @@ function reset() {
           </ElRadio>
         </ElRadioGroup>
       </ElFormItem>
-      <ElButton :icon="RotateCcw" text @click="reset">Reset</ElButton>
+      <ElFormItem label="Departure time">
+        <ElRadioGroup
+          v-model="draft.departurePeriod"
+          aria-label="Departure time"
+          class="flex flex-wrap gap-1"
+        >
+          <ElRadio value="">Any time</ElRadio>
+          <ElRadio value="MORNING">Morning</ElRadio>
+          <ElRadio value="AFTERNOON">Afternoon</ElRadio>
+        </ElRadioGroup>
+      </ElFormItem>
+      <ElFormItem label="Airline">
+        <ElRadioGroup
+          v-model="draft.airlineCode"
+          class="flex! flex-col items-start! gap-1"
+          aria-label="Airline"
+        >
+          <ElRadio value="">Any airline</ElRadio>
+          <ElRadio v-for="airline in airlines" :key="airline.code" :value="airline.code">
+            {{ airline.name }} ({{ airline.code }})
+          </ElRadio>
+        </ElRadioGroup>
+      </ElFormItem>
     </ElForm>
     <template #footer>
       <div class="flex justify-end gap-3">

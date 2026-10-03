@@ -13,7 +13,7 @@ const error = ref('')
 const query = ref('')
 let controller: AbortController | null = null
 let searchTimer: ReturnType<typeof setTimeout> | undefined
-const popular = ['Shanghai', 'Beijing', 'Hong Kong', 'Chengdu', 'Tokyo', 'Singapore']
+const popular = ['Shanghai', 'Beijing', 'Hong Kong', 'New York', 'Tokyo', 'Singapore']
 
 function search(value: string) {
   // Every new input/shortcut owns the latest search, including during the debounce window.
