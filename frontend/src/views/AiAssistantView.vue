@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ElAlert, ElButton, ElDrawer, ElForm, ElFormItem, ElInput } from 'element-plus'
 import { LoaderCircle, Menu, RefreshCw, Send, Trash2, X } from 'lucide-vue-next'
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ConversationList from '../components/ConversationList.vue'
 import AppShell from '../components/AppShell.vue'
 import ChatEventCards from '../components/ChatEventCards.vue'
@@ -10,12 +10,35 @@ import { useChatStore } from '../stores/chat'
 const chat = useChatStore()
 const input = ref('')
 const messageList = ref<HTMLElement | null>(null)
+const messageContent = ref<HTMLElement | null>(null)
 const sidebarOpen = ref(false)
 const error = ref('')
+let followLatest = true
+let lastScrollTop = 0
+let contentObserver: ResizeObserver | undefined
+
+function scrollToLatest() {
+  const list = messageList.value
+  if (!list || !followLatest) return
+  list.scrollTo({ top: list.scrollHeight, behavior: 'instant' })
+  lastScrollTop = list.scrollTop
+}
+
+function trackScroll() {
+  const list = messageList.value
+  if (!list) return
+  if (list.scrollHeight - list.clientHeight - list.scrollTop <= 2) followLatest = true
+  else if (list.scrollTop < lastScrollTop) followLatest = false
+  lastScrollTop = list.scrollTop
+}
 
 onMounted(() => {
+  // Tables can finish layout after nextTick; observe content, not the fixed-height viewport.
+  contentObserver = new ResizeObserver(scrollToLatest)
+  if (messageContent.value) contentObserver.observe(messageContent.value)
   void chat.initialize()
 })
+onBeforeUnmount(() => contentObserver?.disconnect())
 
 function passengersFor(turnIndex: number) {
   const turns = chat.current?.turns ?? []
@@ -62,8 +85,9 @@ watch(
     () => chat.sending,
   ],
   async () => {
+    followLatest = true
     await nextTick()
-    messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'smooth' })
+    scrollToLatest()
   },
 )
 </script>
@@ -136,113 +160,116 @@ watch(
           class="min-h-0 overflow-y-auto px-4 py-6 lg:px-8"
           aria-live="polite"
           :aria-busy="chat.loadingHistory"
+          @scroll.passive="trackScroll"
         >
-          <ElAlert
-            v-if="error || chat.current?.loadError"
-            :title="error || chat.current?.loadError"
-            type="error"
-            :closable="false"
-            class="mb-4"
-            role="alert"
-          />
-          <p
-            v-if="chat.loadingHistory || (chat.loadingSessions && !chat.current)"
-            class="flex items-center gap-2 text-sm text-slate-500"
-            role="status"
-          >
-            <LoaderCircle
-              :size="16"
-              class="animate-spin motion-reduce:animate-none"
-              aria-hidden="true"
+          <div ref="messageContent" class="flow-root">
+            <ElAlert
+              v-if="error || chat.current?.loadError"
+              :title="error || chat.current?.loadError"
+              type="error"
+              :closable="false"
+              class="mb-4"
+              role="alert"
             />
-            Loading conversation…
-          </p>
-          <div
-            v-else-if="chat.current?.loaded && !chat.current.turns.length"
-            class="py-12 text-center"
-          >
-            <h2 class="text-base font-semibold">Where would you like to go?</h2>
-            <p class="mt-2 text-sm text-slate-500">
-              Tell me your origin, destination, and travel date.
-            </p>
-            <p class="mt-3 text-xs text-slate-500">
-              Your conversation is saved when you send a message.
-            </p>
-          </div>
-          <template v-if="!chat.loadingHistory">
-            <article
-              v-for="(turn, index) in chat.current?.turns"
-              :key="turn.turnId"
-              class="mb-6 grid min-w-0 gap-4"
+            <p
+              v-if="chat.loadingHistory || (chat.loadingSessions && !chat.current)"
+              class="flex items-center gap-2 text-sm text-slate-500"
+              role="status"
             >
-              <div class="grid justify-items-end gap-1">
-                <span class="text-xs text-slate-500">You</span>
-                <div
-                  class="max-w-full rounded-xl bg-[#1d4ed8] px-4 py-3 text-sm leading-6
-                   wrap-anywhere whitespace-pre-wrap text-white shadow-sm sm:max-w-[85%]"
-                >
-                  {{ turn.view.userMessage }}
-                </div>
-              </div>
-              <div
-                v-if="turn.view.assistantMessage || turn.view.events.length"
-                class="grid min-w-0 justify-items-start gap-3"
-              >
-                <span class="text-xs text-slate-500">Assistant</span>
-                <div
-                  v-if="turn.view.assistantMessage"
-                  class="max-w-full rounded-xl border border-slate-200 bg-surface px-4 py-3
-                   text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-slate-800 shadow-sm
-                   shadow-slate-900/5 sm:max-w-[85%]"
-                >
-                  {{ turn.view.assistantMessage }}
-                </div>
-                <ChatEventCards
-                  v-if="turn.view.events.length"
-                  :events="turn.view.events"
-                  :passengers="passengersFor(index)"
-                  :interactive="
-                    turn.status === 'completed' &&
-                    turn.turnId === chat.current?.turns.at(-1)?.turnId &&
-                    chat.canSend
-                  "
-                  @quick="submit"
-                />
-              </div>
-              <p
-                v-if="turn.delivery === 'sending'"
-                class="flex items-center gap-2 text-sm text-slate-500"
-                role="status"
-              >
-                <LoaderCircle
-                  :size="16"
-                  class="animate-spin motion-reduce:animate-none"
-                  aria-hidden="true"
-                />Assistant is working…
+              <LoaderCircle
+                :size="16"
+                class="animate-spin motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+              Loading conversation…
+            </p>
+            <div
+              v-else-if="chat.current?.loaded && !chat.current.turns.length"
+              class="py-12 text-center"
+            >
+              <h2 class="text-base font-semibold">Where would you like to go?</h2>
+              <p class="mt-2 text-sm text-slate-500">
+                Tell me your origin, destination, and travel date.
               </p>
-              <template v-else-if="turn.status !== 'completed'">
-                <ElAlert
-                  :title="turn.status === 'failed' ? 'Reply failed' : 'Reply not confirmed'"
-                  :description="
-                    turn.error ??
-                    ('This turn is unfinished. Refresh to check for a saved reply. '
-                     + 'Check your trips before repeating a booking.')
-                  "
-                  :type="turn.status === 'failed' ? 'error' : 'warning'"
-                  :closable="false"
+              <p class="mt-3 text-xs text-slate-500">
+                Your conversation is saved when you send a message.
+              </p>
+            </div>
+            <template v-if="!chat.loadingHistory">
+              <article
+                v-for="(turn, index) in chat.current?.turns"
+                :key="turn.turnId"
+                class="mb-6 grid min-w-0 gap-4"
+              >
+                <div class="grid justify-items-end gap-1">
+                  <span class="text-xs text-slate-500">You</span>
+                  <div
+                    class="max-w-full rounded-xl bg-[#1d4ed8] px-4 py-3 text-sm leading-6
+                     wrap-anywhere whitespace-pre-wrap text-white shadow-sm sm:max-w-[85%]"
+                  >
+                    {{ turn.view.userMessage }}
+                  </div>
+                </div>
+                <div
+                  v-if="turn.view.assistantMessage || turn.view.events.length"
+                  class="grid min-w-0 justify-items-start gap-3"
+                >
+                  <span class="text-xs text-slate-500">Assistant</span>
+                  <div
+                    v-if="turn.view.assistantMessage"
+                    class="max-w-full rounded-xl border border-slate-200 bg-surface px-4 py-3
+                     text-sm leading-6 wrap-anywhere whitespace-pre-wrap text-slate-800 shadow-sm
+                     shadow-slate-900/5 sm:max-w-[85%]"
+                  >
+                    {{ turn.view.assistantMessage }}
+                  </div>
+                  <ChatEventCards
+                    v-if="turn.view.events.length"
+                    :events="turn.view.events"
+                    :passengers="passengersFor(index)"
+                    :interactive="
+                      turn.status === 'completed' &&
+                      turn.turnId === chat.current?.turns.at(-1)?.turnId &&
+                      chat.canSend
+                    "
+                    @quick="submit"
+                  />
+                </div>
+                <p
+                  v-if="turn.delivery === 'sending'"
+                  class="flex items-center gap-2 text-sm text-slate-500"
                   role="status"
-                />
-                <ElButton
-                  v-if="chat.canRetry(turn.turnId)"
-                  class="justify-self-start"
-                  text
-                  type="primary"
-                  @click="chat.retry(turn.turnId)"
-                  >Retry message
-                </ElButton>
-              </template>
-            </article>
-          </template>
+                >
+                  <LoaderCircle
+                    :size="16"
+                    class="animate-spin motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />Assistant is working…
+                </p>
+                <template v-else-if="turn.status !== 'completed'">
+                  <ElAlert
+                    :title="turn.status === 'failed' ? 'Reply failed' : 'Reply not confirmed'"
+                    :description="
+                      turn.error ??
+                      'This turn is unfinished. Refresh to check for a saved reply. ' +
+                        'Check your trips before repeating a booking.'
+                    "
+                    :type="turn.status === 'failed' ? 'error' : 'warning'"
+                    :closable="false"
+                    role="status"
+                  />
+                  <ElButton
+                    v-if="chat.canRetry(turn.turnId)"
+                    class="justify-self-start"
+                    text
+                    type="primary"
+                    @click="chat.retry(turn.turnId)"
+                    >Retry message
+                  </ElButton>
+                </template>
+              </article>
+            </template>
+          </div>
         </div>
         <ElForm
           class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-t border-slate-200 px-4 py-4 lg:px-8"
