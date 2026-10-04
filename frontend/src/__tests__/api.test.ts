@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { cancelBooking, deleteChat, getMe, logout, register, sendChat, setAccessToken, setUnauthorizedHandler } from '../api.ts'
+import { cancelBooking, deleteChat, getMe, logout, register, searchFlights, sendChat, setAccessToken, setUnauthorizedHandler } from '../api.ts'
 
 function mockJson(body: unknown, status = 200) {
   let captured: { path: string; init: RequestInit } | null = null
@@ -11,6 +11,26 @@ function mockJson(body: unknown, status = 200) {
   }) as typeof fetch
   return () => captured
 }
+
+test('flight range pagination uses the search API and preserves filters and abort signal', async () => {
+  const data = { flights: [], pagination: { page: 2, limit: 5, totalItems: 25, totalPages: 5 } }
+  const captured = mockJson({ data })
+  const controller = new AbortController()
+  assert.deepEqual(await searchFlights({
+    origin: 'PEK', destination: 'HKG', departureDateFrom: '2026-12-01', departureDateTo: '2026-12-31',
+    passengers: 2, departurePeriod: 'MORNING', airlineCode: 'CX',
+    sortBy: 'departureAt', sortOrder: 'asc', page: 2, limit: 5,
+  }, controller.signal), data)
+  const request = captured()!
+  const url = new URL(request.path, 'http://localhost')
+  assert.equal(url.pathname, '/api/flights/search')
+  assert.deepEqual(Object.fromEntries(url.searchParams), {
+    origin: 'PEK', destination: 'HKG', departureDateFrom: '2026-12-01', departureDateTo: '2026-12-31',
+    passengers: '2', departurePeriod: 'MORNING', airlineCode: 'CX',
+    sortBy: 'departureAt', sortOrder: 'asc', page: '2', limit: '5',
+  })
+  assert.equal(request.init.signal, controller.signal)
+})
 
 test('register sends the backend field names', async () => {
   const captured = mockJson({ data: { user: { id: 'u' }, accessToken: 'token', expiresIn: '24h' } })

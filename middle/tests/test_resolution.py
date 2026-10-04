@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 try:
     from middle import resolution
@@ -27,8 +28,10 @@ class FakeBackend:
             200, {"data": {"airports": [{"iataCode": "PEK"}]}}
         )
 
-    def search_flights(self, criteria: dict) -> resolution.BackendResponse:
-        self.calls.append(("search_flights", criteria))
+    def search_flights(self, criteria: dict, *, departure_date_from: str, departure_date_to: str) -> resolution.BackendResponse:
+        self.calls.append(("search_flights", {
+            **criteria, "departureDateFrom": departure_date_from, "departureDateTo": departure_date_to,
+        }))
         return resolution.BackendResponse(200, {"data": {"flights": []}})
 
     def get_flight(self, flight_id: str) -> resolution.BackendResponse:
@@ -110,6 +113,35 @@ class ToolSchemaTests(unittest.TestCase):
 
 
 class BackendClientTests(unittest.TestCase):
+    def test_flight_tool_sends_one_range_request_and_preserves_pagination(self) -> None:
+        client = resolution.BackendClient("http://localhost:3000")
+        executor = resolution.ToolExecutor(client)
+        context = resolution.RequestContext(access_token=None, request_id=str(uuid.uuid4()))
+        for first, last, page in [("2026-12-08", "2026-12-08", 1), ("2026-12-01", "2026-12-31", 2),
+                                  ("2028-02-01", "2028-02-29", 3), ("2026-12-20", "2027-01-05", 5)]:
+            data = {"flights": [], "pagination": {"page": page, "limit": 5, "totalItems": 25, "totalPages": 5}}
+            with self.subTest(first=first, last=last, page=page), patch(
+                f"{resolution.__name__}.urlopen", return_value=FakeHTTPResponse(200, {"data": data}),
+            ) as urlopen:
+                result = executor.execute("search_flights", json.dumps({
+                    "origin": "PEK", "destination": "HKG", "departure_date_from": first,
+                    "departure_date_to": last, "departure_period": "MORNING", "airline_code": "CX",
+                    "passengers": 2, "page": page, "sort_by": "departureAt", "sort_order": "asc",
+                }), context)
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["data"], data)
+                urlopen.assert_called_once()
+                request = urlopen.call_args.args[0]
+                self.assertEqual(request.method, "GET")
+                url = urlparse(request.full_url)
+                self.assertEqual(url.path, "/api/flights/search")
+                self.assertEqual(parse_qs(url.query), {
+                    "origin": ["PEK"], "destination": ["HKG"], "departureDateFrom": [first],
+                    "departureDateTo": [last], "departurePeriod": ["MORNING"], "airlineCode": ["CX"],
+                    "passengers": ["2"], "sortBy": ["departureAt"], "sortOrder": ["asc"],
+                    "page": [str(page)], "limit": ["5"],
+                })
+
     def test_airport_tool_forwards_explicit_match_mode_and_rejects_invalid_modes(self) -> None:
         client = resolution.BackendClient("http://localhost:3000")
         executor = resolution.ToolExecutor(client)
@@ -193,10 +225,12 @@ class ToolExecutorTests(unittest.TestCase):
         arguments = {
             "origin": "pek",
             "destination": "hkg",
-            "departure_date": "2026-12-08",
+            "departure_date_from": "2026-12-08",
+            "departure_date_to": "2026-12-08",
             "departure_period": "ANY",
             "airline_code": "",
             "passengers": 2,
+            "page": 1,
             "sort_by": "price",
             "sort_order": "asc",
         }
@@ -209,30 +243,72 @@ class ToolExecutorTests(unittest.TestCase):
         criteria = self.backend.calls[0][1]
         self.assertEqual(criteria["origin"], "PEK")
         self.assertEqual(criteria["destination"], "HKG")
-        self.assertEqual(criteria["departureDate"], "2026-12-08")
+        self.assertEqual(criteria["departureDateFrom"], "2026-12-08")
+        self.assertEqual(criteria["departureDateTo"], "2026-12-08")
+        self.assertNotIn("departureDate", criteria)
         self.assertEqual(criteria["page"], 1)
         self.assertEqual(criteria["limit"], 5)
         self.assertNotIn("departurePeriod", criteria)
         self.assertNotIn("airlineCode", criteria)
 
-    def test_invalid_calendar_date_is_rejected_before_http(self) -> None:
+    def test_invalid_date_ranges_are_rejected_before_http(self) -> None:
         arguments = {
             "origin": "PEK",
             "destination": "HKG",
-            "departure_date": "2026-02-30",
+            "departure_date_from": "2026-12-01",
+            "departure_date_to": "2026-12-31",
             "departure_period": "ANY",
             "airline_code": "",
             "passengers": 1,
+            "page": 1,
             "sort_by": "departureAt",
             "sort_order": "asc",
         }
 
-        result = self.executor.execute(
-            "search_flights", json.dumps(arguments), self.context
-        )
-
+        for changes in [
+            {"departure_date_from": "2026-02-30"},
+            {"departure_date_to": "2026-12-32"},
+            {"departure_date_from": "2026-12"},
+            {"departure_date_from": None},
+            {"departure_date_to": ["2026-12-31"]},
+            {"departure_date_to": "2026-11-30"},
+            {"departure_date_to": "2027-01-01"},
+            {"departure_date": "2026-12-08"},
+        ]:
+            with self.subTest(changes=changes):
+                result = self.executor.execute(
+                    "search_flights", json.dumps({**arguments, **changes}), self.context
+                )
+                self.assertEqual(result["error"]["code"], "INVALID_TOOL_ARGUMENTS")
+        del arguments["departure_date_to"]
+        result = self.executor.execute("search_flights", json.dumps(arguments), self.context)
         self.assertEqual(result["error"]["code"], "INVALID_TOOL_ARGUMENTS")
         self.assertEqual(self.backend.calls, [])
+
+    def test_flight_page_is_required_and_validated_before_http(self) -> None:
+        arguments = {
+            "origin": "PEK", "destination": "HKG",
+            "departure_date_from": "2026-12-01", "departure_date_to": "2026-12-31",
+            "departure_period": "ANY", "airline_code": "", "passengers": 1,
+            "sort_by": "price", "sort_order": "asc",
+        }
+        for page in [0, -1, 10001, True, "2", 1.5, None]:
+            with self.subTest(page=page):
+                result = self.executor.execute(
+                    "search_flights", json.dumps({**arguments, "page": page}), self.context
+                )
+                self.assertEqual(result["error"]["code"], "INVALID_TOOL_ARGUMENTS")
+                self.assertIn("page", result["error"]["message"])
+        result = self.executor.execute("search_flights", json.dumps(arguments), self.context)
+        self.assertEqual(result["error"]["code"], "INVALID_TOOL_ARGUMENTS")
+        self.assertEqual(self.backend.calls, [])
+
+        result = self.executor.execute(
+            "search_flights", json.dumps({**arguments, "page": 10000}), self.context
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.backend.calls[0][1]["page"], 10000)
+        self.assertEqual(self.backend.calls[0][1]["limit"], 5)
 
     def test_protected_tool_without_token_returns_auth_required(self) -> None:
         context = resolution.RequestContext(
@@ -332,17 +408,11 @@ class AssistantLoopTests(unittest.TestCase):
                     tool_executor=resolution.ToolExecutor(backend),
                 )
                 history = assistant.new_history()
-                events: list[dict] = []
                 assistant.respond(history, "Confirm booking", access_token="token",
-                                  request_id=str(uuid.uuid4()), event_sink=events)
+                                  request_id=str(uuid.uuid4()))
 
                 first_count = int(first_arguments == arguments)
                 self.assertEqual(sum(item[0] == "create_booking" for item in backend.calls), first_count)
-                self.assertEqual(len(events), 4)
-                self.assertEqual(events[0]["result"]["ok"], bool(first_count))
-                for index in (1, 3):
-                    self.assertEqual(events[index]["result"]["error"]["code"], "BOOKING_TURN_LIMIT")
-                self.assertTrue(events[2]["result"]["ok"])
                 replies = [item for item in history if isinstance(item, dict) and item.get("role") == "tool"]
                 self.assertEqual([item["tool_call_id"] for item in replies],
                                  ["first", "same_batch", "lookup", "next_batch"])
@@ -393,14 +463,12 @@ class AssistantLoopTests(unittest.TestCase):
         history = assistant.new_history(
             datetime(2026, 8, 24, tzinfo=timezone.utc)
         )
-        events: list[dict] = []
 
         reply = assistant.respond(
             history,
             "北京飞香港",
             access_token="must-not-reach-deepseek",
             request_id=str(uuid.uuid4()),
-            event_sink=events,
         )
 
         self.assertEqual(reply, "北京有两个机场，请选择 PEK 或 PKX。")
@@ -413,9 +481,6 @@ class AssistantLoopTests(unittest.TestCase):
         self.assertNotIn("must-not-reach-deepseek", json.dumps(second_messages, default=str))
         self.assertIs(second_messages[2], tool_message)
         self.assertEqual(backend.calls, [("search_airports", "Beijing", 5, "fuzzy")])
-        self.assertEqual(events[0]["tool"], "search_airports")
-        self.assertEqual(events[0]["result"]["data"]["airports"], [{"iataCode": "PEK"}])
-        self.assertNotIn("must-not-reach-deepseek", json.dumps(events))
 
 
 if __name__ == "__main__":

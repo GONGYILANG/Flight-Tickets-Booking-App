@@ -148,6 +148,8 @@ Error responses use:
 
 ### Flight
 
+This is the **full public Flight object** used by the Flight API, produced by `toFlightResponse()` in `backend/src/services/flightService.js`. Search returns these objects in `data.flights[]`; detail returns one at `data.flight`.
+
 ```json
 {
   "id": "66a1b2c3d4e5f67890123456",
@@ -224,6 +226,8 @@ Session summaries contain `sessionId`, `title`, `createdAt`, `updatedAt`, and `l
 Each Turn references its parent Session's MongoDB `_id`. Unique compound indexes on `(session, turnId)` and `(session, sequence)` protect retry identity and ordering. `sequence` starts at 1 and is allocated atomically by the backend. Gaps after concurrent retries or unsuccessful inserts are valid; it represents allocation order, not completion time or the number of turns.
 
 Run `npm run indexes` from `backend` before enabling these routes in production, where automatic index creation is disabled. The index script includes the new Turn collection.
+
+The **Turn DTO** (Data Transfer Object) is produced by `toTurnResponse()` in `backend/src/services/sessionService.js`. It is the shared response structure for `data.session.turns[]` and `data.turn`; internal database fields `session`, `_id`, and `__v` are omitted.
 
 Example completed Turn DTO:
 
@@ -496,11 +500,13 @@ Successful response (`200`):
 }
 ```
 
+Each `data.flights[]` element is the [full public Flight object defined in Data objects](#flight).
+
 Invalid input, unknown airports, or an unknown airline return `400 INVALID_REQUEST`. A valid search with no matching flights returns `200` with an empty array.
 
 ### `GET /api/flights/:flightId`
 
-Returns one public Flight object by MongoDB ObjectId.
+Returns one [full public Flight object defined in Data objects](#flight) at `data.flight`, selected by MongoDB ObjectId.
 
 ```http
 GET /api/flights/66a1b2c3d4e5f67890123456
@@ -670,7 +676,34 @@ There is no pagination or message payload. The middle layer can load the sidebar
 
 ### `GET /api/sessions/:sessionId`
 
-Returns `{data: {session: <summary plus turns>}}`, including **all** completed, pending, and failed Turns in `sequence ASC` order. Empty sessions have `turns: []`. Reading updates `lastAccess`. No client-side turn grouping or event reconstruction is needed.
+Returns the authenticated user's session with **all** Turns in `sequence ASC` order. Each element of `data.session.turns` uses the [Turn DTO defined in Data objects](#session-and-turn).
+
+Successful response (`200`), with Turn contents abbreviated:
+
+~~~json
+{
+  "data": {
+    "session": {
+      "sessionId": "d15ed6e0-e750-4af7-b284-001462f33279",
+      "title": "Show my bookings.",
+      "createdAt": "2026-10-04T09:55:00.000Z",
+      "updatedAt": "2026-10-04T09:57:00.000Z",
+      "lastAccess": "2026-10-04T09:57:00.000Z",
+      "turns": [
+        { "...": "Turn DTO" }
+      ]
+    }
+  }
+}
+~~~
+
+| Turn status | Restored contents |
+| --- | --- |
+| `pending` | Initial user input; `assistantMessage: null`, `events: []`, and `error: null`. |
+| `completed` | Complete transcript, final assistant text, event cards, and `error: null`. |
+| `failed` | Available transcript, any completed tool results, and an error description. |
+
+There is no pagination. Empty sessions have `turns: []`. Reading updates `lastAccess`. No client-side turn grouping or event reconstruction is needed.
 
 Invalid UUIDs return `400 INVALID_REQUEST`; missing, deleting, or other-user sessions return `404 SESSION_NOT_FOUND`.
 
@@ -692,7 +725,7 @@ Persist user input **before** invoking the model or any tools:
 - `view: {userMessage: <trimmed message>, assistantMessage: null, events: []}`
 - `error: null`
 
-Returns `201` with `{data: {turn: <Turn DTO>}, meta: {alreadyExists: false}}`. Repeating the same ID and input returns the existing Turn with `200` and `alreadyExists=true`, including its current status and any saved result. It does not reset the Turn. Reusing an ID for different input returns `409 TURN_ID_CONFLICT`. Concurrent repeated creates produce one Turn.
+Returns `201` with `{data: {turn: <Turn DTO>}, meta: {alreadyExists: false}}`, where `<Turn DTO>` is the [Turn DTO defined in Data objects](#session-and-turn). Repeating the same ID and input returns the existing Turn with `200` and `alreadyExists=true`, including its current status and any saved result. It does not reset the Turn. Reusing an ID for different input returns `409 TURN_ID_CONFLICT`. Concurrent repeated creates produce one Turn.
 
 A replayed start is not an execution lock. The middle layer must serialize processing per session and avoid launching another model/tool run merely because a pending record exists.
 
@@ -726,7 +759,7 @@ To record a known failure, submit the available transcript and a short error:
 
 Failed transcripts may end with unanswered tool calls. `error` is required for failures (1–2000 characters), and absent or `null` for completion. A hard crash before this request leaves the initial `pending` record, identifying an unfinished turn. Pending does not prove a worker is still running.
 
-Returns `200` with `{data: {turn: <Turn DTO>}, meta: {alreadyCompleted: false}}`. Completed Turns are immutable: the identical result returns `200` and `alreadyCompleted=true`; a different result or stale failure returns `409 TURN_ALREADY_COMPLETED`. Pending and failed Turns can receive a final result, allowing completion with the same ID after a deliberate retry. Failed snapshots can be replaced; the middle layer remains responsible for serialized retries.
+Returns `200` with `{data: {turn: <Turn DTO>}, meta: {alreadyCompleted: false}}`, where `<Turn DTO>` is the [Turn DTO defined in Data objects](#session-and-turn). Completed Turns are immutable: the identical result returns `200` and `alreadyCompleted=true`; a different result or stale failure returns `409 TURN_ALREADY_COMPLETED`. Pending and failed Turns can receive a final result, allowing completion with the same ID after a deliberate retry. Failed snapshots can be replaced; the middle layer remains responsible for serialized retries.
 
 Missing Turns return `404 TURN_NOT_FOUND`. Changed original input returns `409 TURN_ID_CONFLICT`. Invalid transcripts return `400 INVALID_REQUEST`. Saving or replaying a Turn updates the parent Session's `lastAccess`.
 

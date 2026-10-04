@@ -124,10 +124,18 @@ TOOLS: list[dict[str, Any]] = [
                 "pattern": "^[A-Z]{3}$",
                 "description": "Destination airport IATA code, for example HKG.",
             },
-            "departure_date": {
+            "departure_date_from": {
                 "type": "string",
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                "description": "Departure airport local date in YYYY-MM-DD form.",
+                "description": "First departure airport local date, inclusive, in YYYY-MM-DD form. "
+                "For one exact date, set both date fields to that date.",
+            },
+            "departure_date_to": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "Last departure airport local date, inclusive, in YYYY-MM-DD form. "
+                "Must be on or after departure_date_from, with at most 31 calendar days "
+                "including both endpoints.",
             },
             "departure_period": {
                 "type": "string",
@@ -144,6 +152,13 @@ TOOLS: list[dict[str, Any]] = [
                 "minimum": 1,
                 "maximum": 9,
                 "description": "Number of seats required.",
+            },
+            "page": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000,
+                "description": "Result page, starting at 1. Request another page only as needed, " 
+                "preserving the search filters and sort order. Each page contains up to 5 flights.",
             },
             "sort_by": {
                 "type": "string",
@@ -243,8 +258,23 @@ Follow these rules:
      proof of bookable flights. Only search_flights establishes flight availability.
 2. Never invent airport IATA codes, flight_id, booking_id, prices, seat availability, or booking status.
  Use tool results for these facts.
-3. Flight search defaults: departure_period=ANY, airline_code empty, passengers=1,
- sort_by=departureAt and sort_order=asc. Use price asc for the cheapest fare.
+3. Flight search defaults: departure_period=ANY, airline_code empty, passengers=1, page=1,
+ sort_by=price and sort_order=asc.
+   - Use departure_date_from and departure_date_to for every search. For one exact date,
+     set both to that date. For a month, use its first and last calendar dates, for example
+     December 2026 is 2026-12-01 through 2026-12-31. Dates use the departure airport's timezone.
+   - Search a time window as a range, not once per day. The inclusive range must be 1 to 31 days;
+     ask the user to narrow a longer or unclear window rather than silently truncating it.
+   - Results contain up to 5 flights on the requested page, sorted across the entire range,
+     not one per day. When the user asks for more, preserve all search filters and sorting
+     and request pagination.page + 1 only if pagination.page < pagination.totalPages.
+     Reset page to 1 when filters or sorting change. Do not fetch every page by default;
+     use filtering and sorting to answer questions such as the cheapest flight.
+     Use pagination.totalItems for the total; never imply that this page covers every date
+     or every matching flight. When more results exist, point to the table's page controls.
+     Table pagination does not enter your history. If a user refers to an unseen page or an
+     ambiguous row, ask them to select the flight in the table. Use get_flight for the selected ID
+     before presenting its current details; selection alone is not booking confirmation.
 4. Booking rules:
    - Show the exact flight, date, times, price, and seat count and obtain explicit confirmation
      before create_booking. A price inquiry, candidate selection, or vague agreement is not confirmation.
@@ -406,8 +436,12 @@ class BackendClient:
             "GET", "/api/airports/search", query={"q": query, "limit": limit, "match": match}
         )
 
-    def search_flights(self, criteria: dict[str, Any]) -> BackendResponse:
-        return self._request("GET", "/api/flights/search", query=criteria)
+    def search_flights(
+        self, criteria: dict[str, Any], *, departure_date_from: str, departure_date_to: str,
+    ) -> BackendResponse:
+        return self._request("GET", "/api/flights/search", query={
+            **criteria, "departureDateFrom": departure_date_from, "departureDateTo": departure_date_to,
+        })
 
     def get_flight(self, flight_id: str) -> BackendResponse:
         return self._request(
@@ -578,10 +612,12 @@ class ToolExecutor:
         expected = {
             "origin",
             "destination",
-            "departure_date",
+            "departure_date_from",
+            "departure_date_to",
             "departure_period",
             "airline_code",
             "passengers",
+            "page",
             "sort_by",
             "sort_order",
         }
@@ -598,17 +634,17 @@ class ToolExecutor:
         if origin == destination:
             raise ToolInputError("origin and destination must be different")
 
-        departure_date = self._string(
-            arguments["departure_date"], "departure_date"
-        )
-        if not DATE_PATTERN.fullmatch(departure_date):
-            raise ToolInputError("departure_date must use YYYY-MM-DD format")
-        try:
-            parsed_date = date.fromisoformat(departure_date)
-        except ValueError as error:
-            raise ToolInputError("departure_date must be a valid date") from error
-        if parsed_date.isoformat() != departure_date:
-            raise ToolInputError("departure_date must be a valid date")
+        dates = []
+        for field in ("departure_date_from", "departure_date_to"):
+            value = self._string(arguments[field], field)
+            if not DATE_PATTERN.fullmatch(value):
+                raise ToolInputError(f"{field} must use YYYY-MM-DD format")
+            try:
+                dates.append(date.fromisoformat(value))
+            except ValueError as error:
+                raise ToolInputError(f"{field} must be a valid date") from error
+        if not 0 <= (dates[1] - dates[0]).days <= 30:
+            raise ToolInputError("The departure date range must contain 1 to 31 calendar days")
 
         departure_period = self._string(
             arguments["departure_period"], "departure_period"
@@ -625,6 +661,7 @@ class ToolExecutor:
             raise ToolInputError("airline_code must contain 2 or 3 letters/digits")
 
         passengers = self._integer(arguments["passengers"], "passengers", 1, 9)
+        page = self._integer(arguments["page"], "page", 1, 10000)
         sort_by = self._string(arguments["sort_by"], "sort_by")
         if sort_by not in {
             "departureAt",
@@ -640,9 +677,8 @@ class ToolExecutor:
         criteria: dict[str, Any] = {
             "origin": origin,
             "destination": destination,
-            "departureDate": departure_date,
             "passengers": passengers,
-            "page": 1,
+            "page": page,
             "limit": 5,
             "sortBy": sort_by,
             "sortOrder": sort_order,
@@ -652,7 +688,9 @@ class ToolExecutor:
         if airline_code:
             criteria["airlineCode"] = airline_code
 
-        return self._from_backend(self.backend.search_flights(criteria))
+        return self._from_backend(self.backend.search_flights(
+            criteria, departure_date_from=dates[0].isoformat(), departure_date_to=dates[1].isoformat(),
+        ))
 
     def _get_flight(
         self, arguments: dict[str, Any], _context: RequestContext
@@ -751,9 +789,8 @@ class FlightBookingAssistant:
         *,
         access_token: str | None,
         request_id: str,
-        event_sink: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Append one turn, optionally collect safe tool results, and return text."""
+        """Append a complete conversation turn to history and return the final text."""
 
         content = user_message.strip()
         if not content:
@@ -805,8 +842,6 @@ class FlightBookingAssistant:
                     result = self.tool_executor.execute(
                         function.name, function.arguments, context
                     )
-                if event_sink is not None:
-                    event_sink.append({"tool": function.name, "result": result})
                 history.append(
                     {
                         "role": "tool",

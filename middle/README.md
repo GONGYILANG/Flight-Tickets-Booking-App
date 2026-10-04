@@ -76,7 +76,8 @@ Example response:
           "search": {
             "origin": "PEK",
             "destination": "HKG",
-            "departureDate": "2026-12-08",
+            "departureDateFrom": "2026-12-08",
+            "departureDateTo": "2026-12-08",
             "departurePeriod": null,
             "departureTimezone": "Asia/Shanghai",
             "airlineCode": null,
@@ -98,13 +99,17 @@ Responses contain `sessionId`, `requestId`, `message`, `replayed`, and an ordere
 | Tool | Backend endpoint | Notes |
 | --- | --- | --- |
 | `search_airports` | `GET /api/airports/search` | Explicit `match`: `fuzzy` for names/fragments, `exact` for IATA codes; fixed `limit=5`. |
-| `search_flights` | `GET /api/flights/search` | Searches routes and filters; fixed `page=1, limit=5`. |
+| `search_flights` | `GET /api/flights/search` | Inclusive `departure_date_from` / `departure_date_to` range, at most 31 calendar days; required integer `page` from 1 to 10000, fixed `limit=5`. Set both dates to the same day for an exact-date search. |
 | `get_flight` | `GET /api/flights/:flightId` | Retrieves current flight details. |
 | `create_booking` | `POST /api/bookings` | Adds `source=AI` and uses the canonical requestId as the idempotency key. |
 | `list_my_bookings` | `GET /api/bookings/me` | Accepts a model-selected `page`; fixed `limit=10`. |
 | `cancel_booking` | `PATCH /api/bookings/:bookingId/cancel` | Cancels the authenticated user's booking. |
 
 All declared tool fields are required by the strict schema. Optional flight filters use `departure_period="ANY"` and `airline_code=""`; Python omits these filters from the backend query. See the [backend API reference](../docs/api-reference.md) for REST contracts.
+
+Flight windows are queried as ranges and sorted across the whole range. Each page contains up to five results and does not guarantee coverage of every date. The assistant starts at page 1, can request the next page when the user asks for more and `pagination.page < pagination.totalPages`, and preserves the search filters and sorting. Changing filters or sorting starts a new search at page 1. The prompt discourages fetching every page by default. The chat table shows the original search window, total count, local flight dates, and page controls. Using those controls calls the public Flight API directly with the same filters and page size, without another model request. Each search card owns its pagination state; failed requests retain the previous page and offer retry. Historical single-date search cards remain pageable.
+
+Every model-requested page is saved as a tool result in the conversation. Browsing pages directly in the table does not rewrite history or reveal that page to the model. Selecting any row sends its exact flight ID, route, departure time, and that search's passenger count to the assistant for a fresh detail lookup. If the user refers to an unseen page or an ambiguous row in text, the prompt asks them to select the flight instead of guessing its identity.
 
 Airport resolution translates user-provided names into English city names or distinctive airport keywords and uses fuzzy search. The model explicitly selects exact matching for IATA codes. Query length does not determine matching mode. The prompt requires one query per unresolved location before inspecting results, checking candidates' cityName and name against the city or airport the user mentioned, and reusing resolved locations. Empty or irrelevant results allow a justified shorter name, spelling, or translation correction; unresolved ambiguity prompts clarification in the user's language. Successful lookups must not trigger speculative code/name searches. These are model instructions, not a hard limit on airport calls.
 

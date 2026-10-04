@@ -74,6 +74,17 @@ export interface FlightSearchParams {
   sortOrder?: 'asc' | 'desc'
 }
 
+export type FlightRangeSearchParams = Omit<FlightSearchParams, 'departureDate'> & {
+  departureDateFrom: string
+  departureDateTo: string
+}
+
+export interface FlightSearchResult {
+  flights: Flight[]
+  pagination: Pagination
+  search: (FlightSearchParams | FlightRangeSearchParams) & { departureTimezone: string }
+}
+
 export type ChatToolName =
   | 'search_airports'
   | 'search_flights'

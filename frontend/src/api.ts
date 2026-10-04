@@ -5,7 +5,9 @@ import type {
   ChatSession,
   ChatSessionSummary,
   Flight,
+  FlightRangeSearchParams,
   FlightSearchParams,
+  FlightSearchResult,
   Pagination,
   User,
 } from './types'
@@ -119,22 +121,21 @@ export async function searchAirports(value: string, limit = 10, signal?: AbortSi
   return response.data.airports
 }
 
-export async function searchFlights(values: FlightSearchParams, signal?: AbortSignal) {
-  const response = await request<{
-    data: {
-      flights: Flight[]
-      pagination: Pagination
-      search: FlightSearchParams & { departureTimezone: string }
-    }
-  }>(`/api/flights/search?${toQueryParams({ ...values })}`, { signal })
+export async function searchFlights(
+  values: FlightSearchParams | FlightRangeSearchParams,
+  signal?: AbortSignal
+) {
+  const response = await request<{ data: FlightSearchResult }>(
+    `/api/flights/search?${toQueryParams({ ...values })}`, { signal },
+  )
   return response.data
 }
 
 export async function getFlight(flightId: string, signal?: AbortSignal) {
   return (
-    await request<{ data: { flight: Flight } }>(`/api/flights/${encodeURIComponent(flightId)}`, {
-      signal,
-    })
+    await request<{ data: { flight: Flight } }>(`/api/flights/${encodeURIComponent(flightId)}`,
+      { signal },
+    )
   ).data.flight
 }
 

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ElAlert, ElButton, ElTag } from 'element-plus'
 import { ArrowRight, ChevronRight } from 'lucide-vue-next'
-import FlightTable from './FlightTable.vue'
+import ChatFlightResults from './ChatFlightResults.vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { computed } from 'vue'
 import { amountToCents, centsToAmount, formatFlightDate, formatMoney, formatTime } from '../lib'
-import type { Airport, Booking, ChatEvent, Flight } from '../types'
+import type { Airport, Booking, ChatEvent, Flight, FlightSearchResult } from '../types'
 
 const props = defineProps<{ events: ChatEvent[]; passengers: number; interactive: boolean }>()
 const emit = defineEmits<{ quick: [string] }>()
@@ -24,9 +24,9 @@ function airportGroups(event: ChatEvent) {
   }
   return [...groups].map(([city, airports]) => ({ city, airports }))
 }
-const flights = (event: ChatEvent) => event.result.data?.flights as Flight[]
-const flight = (event: ChatEvent) => event.result.data?.flight as unknown as Flight | undefined
-const booking = (event: ChatEvent) => event.result.data?.booking as unknown as Booking | undefined
+const flightResults = (event: ChatEvent) => event.result.data as unknown as FlightSearchResult
+const flight = (event: ChatEvent) => event.result.data?.flight as Flight | undefined
+const booking = (event: ChatEvent) => event.result.data?.booking as Booking | undefined
 const bookings = (event: ChatEvent) => event.result.data?.bookings as Booking[]
 </script>
 
@@ -61,19 +61,10 @@ const bookings = (event: ChatEvent) => event.result.data?.bookings as Booking[]
         </section>
       </template>
       <div v-else-if="event.tool === 'search_flights'" class="min-w-0">
-        <FlightTable
-          :flights="flights(event)"
-          :passengers="passengers"
-          selectable
-          :disabled="!interactive"
-          @select="
-            (item) =>
-              emit(
-                'quick',
-                `Review ${item.flightNumber} (${item.id}) departing ${item.departureAt}
-                 for ${passengers} travelers. Do not book yet.`,
-              )
-          "
+        <ChatFlightResults
+          :result="flightResults(event)"
+          :interactive="interactive"
+          @quick="(message) => emit('quick', message)"
         />
       </div>
       <div

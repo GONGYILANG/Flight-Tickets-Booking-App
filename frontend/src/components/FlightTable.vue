@@ -2,7 +2,7 @@
 import { RouterLink } from 'vue-router'
 import { ElButton, ElTable, ElTableColumn, ElTag } from 'element-plus'
 import { ChevronRight } from 'lucide-vue-next'
-import { formatDuration, formatMoney, formatTime } from '../lib'
+import { formatDuration, formatFlightDate, formatMoney, formatTime } from '../lib'
 import type { Flight } from '../types'
 
 defineProps<{ flights: Flight[]; passengers: number; selectable?: boolean; disabled?: boolean }>()
@@ -29,12 +29,15 @@ const emit = defineEmits<{ select: [Flight] }>()
       </template>
     </ElTableColumn>
     <ElTableColumn label="Departure" min-width="140">
-      <template #default="{ row }"
-        ><span class="mr-2 text-lg font-semibold tabular-nums">{{
-          formatTime(row.departureAt, row.originAirport.timezone)
-        }}</span
-        ><span class="text-xs text-slate-500">{{ row.originAirport.iataCode }}</span></template
-      >
+      <template #default="{ row }">
+        <span class="mr-2 text-lg font-semibold tabular-nums">
+          {{ formatTime(row.departureAt, row.originAirport.timezone)}}
+        </span>
+        <span class="text-xs text-slate-500">{{ row.originAirport.iataCode }}</span>
+        <p class="mt-1 text-xs text-slate-500">
+          {{ formatFlightDate(row.departureAt, row.originAirport.timezone) }}
+        </p>
+      </template>
     </ElTableColumn>
     <ElTableColumn label="Arrival" min-width="140">
       <template #default="{ row }">
@@ -42,6 +45,9 @@ const emit = defineEmits<{ select: [Flight] }>()
           {{formatTime(row.arrivalAt, row.destinationAirport.timezone)}}
         </span>
         <span class="text-xs text-slate-500">{{ row.destinationAirport.iataCode }}</span>
+        <p class="mt-1 text-xs text-slate-500">
+          {{ formatFlightDate(row.arrivalAt, row.destinationAirport.timezone) }}
+        </p>
       </template>
     </ElTableColumn>
     <ElTableColumn label="Details" min-width="185">
